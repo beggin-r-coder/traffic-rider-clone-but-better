@@ -80,7 +80,7 @@ func lanes_for(dir: int) -> Array:
 
 func _density(player_s: float) -> float:
 	# cars per 100 m of road, ramps with distance travelled
-	return (1.5 + clampf(player_s / 6000.0, 0.0, 1.0) * 2.0) * density_mult
+	return (2.0 + clampf(player_s / 6000.0, 0.0, 1.0) * 2.0) * density_mult
 
 func update(dt: float, player_s: float, player_d: float, player_v: float) -> void:
 	# --- spawn / despawn ---

@@ -36,16 +36,22 @@ func _build_scene() -> void:
 	env.glow_enabled = true
 	env.glow_intensity = 0.5
 	env.reflected_light_source = Environment.REFLECTION_SOURCE_DISABLED
+	env.fog_enabled = true
+	env.fog_mode = Environment.FOG_MODE_DEPTH
+	env.fog_light_color = env.background_color
+	env.fog_depth_begin = 6.0
+	env.fog_depth_end = 22.0
+	env.fog_sky_affect = 1.0
 	we.environment = env
 	add_child(we)
 	# Studio lights.
 	var key := DirectionalLight3D.new()
 	key.rotation_degrees = Vector3(-38, 35, 0)
-	key.light_energy = 1.3
+	key.light_energy = 1.8
 	key.shadow_enabled = true
 	key.directional_shadow_max_distance = 20.0
 	add_child(key)
-	for p in [[Vector3(-4, 3, -3), Color(0.4, 0.6, 1.0), 6.0], [Vector3(4, 2.5, 3), Color(1.0, 0.65, 0.35), 5.0], [Vector3(0, 4, 4), Color(1, 1, 1), 3.0]]:
+	for p in [[Vector3(-3.5, 2.5, -3), Color(0.45, 0.6, 1.0), 4.0], [Vector3(3.5, 2.0, 2.5), Color(1.0, 0.7, 0.45), 3.0], [Vector3(-1, 3.5, 4), Color(1, 1, 1), 3.5]]:
 		var o := OmniLight3D.new()
 		o.position = p[0]
 		o.light_color = p[1]
@@ -55,7 +61,7 @@ func _build_scene() -> void:
 	# Glossy floor with a soft spotlight pool.
 	var floor_mi := MeshInstance3D.new()
 	var pm := PlaneMesh.new()
-	pm.size = Vector2(40, 40)
+	pm.size = Vector2(160, 160)
 	floor_mi.mesh = pm
 	var fm := ShaderMaterial.new()
 	fm.shader = preload("res://shaders/showroom_floor.gdshader")
@@ -83,11 +89,12 @@ func _build_scene() -> void:
 	cam = Camera3D.new()
 	cam.fov = 38.0
 	add_child(cam)
-	cam.look_at_from_position(Vector3(4.6, 1.5, 3.4), Vector3(0.6, 0.55, 0.0))
+	# Frame the bike in the right half of the screen (the menu sits on the left).
+	cam.look_at_from_position(Vector3(0.9, 1.25, 5.0), Vector3(-1.05, 0.58, 0.0))
 
 func _process(delta: float) -> void:
 	_t += delta
-	turntable.rotation.y = _t * 0.25 + 0.6
+	turntable.rotation.y = _t * 0.25 - 0.9
 	bike.roll(delta * 0.0)
 
 # ------------------------------------------------------------------ UI

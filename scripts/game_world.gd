@@ -45,10 +45,13 @@ var _shot_at := 0.0
 var _crash_count := 0
 var _sim_time := 0.0
 var _quitting := false
+var _max_lean := 0.0
+var _max_k := 0.0
 
 func _ready() -> void:
 	var night := Game.time_of_day == Game.TimeOfDay.NIGHT
 	var two_way := Game.mode == Game.Mode.TWO_WAY
+	_apply_quality()
 	_build_environment()
 	road = Road.new()
 	road.name = "Road"
@@ -71,10 +74,11 @@ func _ready() -> void:
 	if night:
 		headlight = SpotLight3D.new()
 		headlight.light_color = Color(1.0, 0.96, 0.88)
-		headlight.light_energy = 6.0
-		headlight.spot_range = 90.0
-		headlight.spot_angle = 26.0
-		headlight.spot_attenuation = 0.6
+		headlight.light_energy = 28.0
+		headlight.spot_range = 120.0
+		headlight.spot_angle = 30.0
+		headlight.spot_angle_attenuation = 0.7
+		headlight.spot_attenuation = 0.9
 		headlight.position = Vector3(0, 0.95, -1.05)
 		headlight.rotation.x = deg_to_rad(-4.0)
 		headlight.shadow_enabled = false
@@ -118,6 +122,22 @@ func _ready() -> void:
 
 # ------------------------------------------------------------------ environment
 
+## Phones have very high-DPI screens; render 3D below native resolution on lower settings.
+func _apply_quality() -> void:
+	var vp := get_viewport()
+	match Game.quality:
+		0:
+			vp.scaling_3d_scale = 0.6
+			vp.msaa_3d = Viewport.MSAA_DISABLED
+		1:
+			vp.scaling_3d_scale = 0.8
+			vp.msaa_3d = Viewport.MSAA_2X
+		_:
+			vp.scaling_3d_scale = 1.0
+			vp.msaa_3d = Viewport.MSAA_4X
+	if Game.has_flag("shot") or Game.has_flag("shots"):
+		vp.scaling_3d_scale = 1.0
+
 func _build_environment() -> void:
 	var tod := Game.time_of_day
 	var we := WorldEnvironment.new()
@@ -140,6 +160,7 @@ func _build_environment() -> void:
 	env.fog_enabled = true
 	env.fog_mode = Environment.FOG_MODE_DEPTH
 	env.fog_depth_curve = 1.6
+	env.fog_sky_affect = 0.25
 	env.adjustment_enabled = true
 	env.adjustment_saturation = 1.15
 	env.adjustment_contrast = 1.1
@@ -166,35 +187,41 @@ func _build_environment() -> void:
 			env.fog_depth_begin = 120.0
 			env.fog_depth_end = 1300.0
 		Game.TimeOfDay.SUNSET:
-			sky_mat.sky_top_color = Color(0.2, 0.25, 0.5)
-			sky_mat.sky_horizon_color = Color(0.98, 0.58, 0.32)
-			sky_mat.ground_horizon_color = Color(0.85, 0.5, 0.3)
-			sky_mat.ground_bottom_color = Color(0.15, 0.12, 0.12)
-			sky_mat.sun_angle_max = 30.0
-			sky_mat.sun_curve = 0.08
-			sun.light_color = Color(1.0, 0.62, 0.35)
-			sun.light_energy = 1.4
-			sun.rotation_degrees = Vector3(-9, 10, 0)
-			env.ambient_light_energy = 0.75
-			env.fog_light_color = Color(0.92, 0.6, 0.42)
-			env.fog_depth_begin = 40.0
-			env.fog_depth_end = 900.0
+			var ss := ShaderMaterial.new()
+			ss.shader = preload("res://shaders/sunset_sky.gdshader")
+			ss.set_shader_parameter("top_color", Color(0.1, 0.13, 0.34))
+			ss.set_shader_parameter("mid_color", Color(0.55, 0.36, 0.52))
+			ss.set_shader_parameter("horizon_color", Color(1.0, 0.56, 0.3))
+			ss.set_shader_parameter("ground_color", Color(0.12, 0.1, 0.12))
+			ss.set_shader_parameter("glow_color", Color(1.0, 0.62, 0.3))
+			sky.sky_material = ss
+			sun.light_color = Color(1.0, 0.6, 0.32)
+			sun.light_energy = 1.6
+			sun.rotation_degrees = Vector3(-7, 160, 0)
+			env.ambient_light_energy = 0.9
+			env.ambient_light_sky_contribution = 0.6
+			env.ambient_light_color = Color(0.55, 0.5, 0.6)
+			env.fog_light_color = Color(0.8, 0.5, 0.42)
+			env.fog_depth_begin = 160.0
+			env.fog_depth_end = 1200.0
 		Game.TimeOfDay.NIGHT:
-			sky_mat.sky_top_color = Color(0.01, 0.015, 0.04)
-			sky_mat.sky_horizon_color = Color(0.06, 0.08, 0.14)
-			sky_mat.ground_horizon_color = Color(0.04, 0.05, 0.08)
-			sky_mat.ground_bottom_color = Color(0.0, 0.0, 0.0)
-			sky_mat.sun_angle_max = 2.0
-			sky_mat.sky_energy_multiplier = 0.6
-			sun.light_color = Color(0.55, 0.65, 1.0)
-			sun.light_energy = 0.12
-			sun.rotation_degrees = Vector3(-35, 140, 0)
+			var ns := ShaderMaterial.new()
+			ns.shader = preload("res://shaders/night_sky.gdshader")
+			ns.set_shader_parameter("top_color", Color(0.008, 0.012, 0.04))
+			ns.set_shader_parameter("horizon_color", Color(0.06, 0.08, 0.15))
+			sky.sky_material = ns
+			sun.light_color = Color(0.6, 0.7, 1.0)
+			sun.light_energy = 0.3
+			sun.rotation_degrees = Vector3(-35, 150, 0)
 			sun.shadow_enabled = false
-			env.ambient_light_energy = 0.35
-			env.fog_light_color = Color(0.04, 0.05, 0.09)
-			env.fog_depth_begin = 20.0
-			env.fog_depth_end = 500.0
+			env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+			env.ambient_light_color = Color(0.16, 0.2, 0.32)
+			env.ambient_light_energy = 1.0
+			env.fog_light_color = Color(0.05, 0.065, 0.12)
+			env.fog_depth_begin = 30.0
+			env.fog_depth_end = 650.0
 			env.glow_intensity = 0.9
+			env.glow_hdr_threshold = 0.9
 	we.environment = env
 	add_child(we)
 	add_child(sun)
@@ -287,6 +314,8 @@ func _step(dt: float) -> void:
 		State.RIDING:
 			run_time += dt
 			_read_input()
+			if Game.has_flag("crashat") and run_time >= float(Game.flag("crashat")):
+				rider.crash("test")
 		State.CRASHED, State.OVER:
 			rider.throttle = 0.0
 	rider.simulate(dt)
@@ -367,6 +396,7 @@ func _on_near_miss(clearance: float, oncoming: bool) -> void:
 	if oncoming:
 		label = "ONCOMING " + label
 	hud.popup("%s  +%d" % [label, pts], combo)
+	Input.vibrate_handheld(25)
 	if audio:
 		audio.play_whoosh(rider.v)
 		if randf() < 0.45:
@@ -379,6 +409,7 @@ func _on_crash(reason: String) -> void:
 	if audio:
 		audio.play_crash()
 	sparks.emitting = true
+	Input.vibrate_handheld(250)
 	hud.show_message("CRASHED", 2.0)
 	Engine.time_scale = 0.45 if not autopilot else 1.0
 	get_tree().create_timer(0.6, true, false, true).timeout.connect(func(): Engine.time_scale = 1.0)
@@ -496,12 +527,18 @@ func _harness(dt: float) -> void:
 	if not (autopilot or _shot_path != "" or _shot_dir != ""):
 		return
 	_auto_log_t += dt
+	_max_lean = maxf(_max_lean, absf(rider.lean))
+	_max_k = maxf(_max_k, absf(road.curvature_at(rider.s)))
 	if Game.has_flag("autotest") and _auto_log_t >= 5.0:
 		_auto_log_t = 0.0
 		_auto_stage += 1
-		print("[autotest] stage=%d t=%.1f state=%d s=%.0f d=%.2f kmh=%.0f gear=%d rpm=%.0f lean=%.1f score=%d near=%d cars=%d chunks=%d fps=%.0f" % [
+		var ml := _max_lean
+		var mk := _max_k
+		_max_lean = 0.0
+		_max_k = 0.0
+		print("[autotest] stage=%d t=%.1f state=%d s=%.0f d=%.2f kmh=%.0f gear=%d rpm=%.0f lean=%.1f maxlean=%.0f minR=%.0f score=%d near=%d cars=%d chunks=%d fps=%.0f" % [
 			_auto_stage, _sim_time, state, rider.s, rider.d, rider.kmh(), rider.gear, rider.rpm,
-			rad_to_deg(rider.lean), int(score), near_misses, traffic.cars.size(), road.chunk_count(), Engine.get_frames_per_second()])
+			rad_to_deg(rider.lean), rad_to_deg(ml), 1.0 / maxf(mk, 1e-5), int(score), near_misses, traffic.cars.size(), road.chunk_count(), Engine.get_frames_per_second()])
 	if _shot_path != "" and _sim_time >= _shot_at:
 		var p := _shot_path
 		_shot_path = ""

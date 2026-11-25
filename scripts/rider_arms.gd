@@ -14,6 +14,8 @@ var _mat_panel: StandardMaterial3D
 var _mat_glove: StandardMaterial3D
 var _mat_knuckle: StandardMaterial3D
 var _steer_vis := 0.0
+## Full-body pose (chase view): real shoulder positions instead of the low first-person ones.
+var full_body := false
 
 func _ready() -> void:
 	_mat_jacket = StandardMaterial3D.new()
@@ -100,9 +102,15 @@ func update_pose(steer: float, lean: float, dt: float) -> void:
 		var push: float = _steer_vis * side * 0.02
 		grip += Vector3(0, 0, -push)
 		var shoulder: Vector3 = SHOULDER_L if side < 0 else SHOULDER_R
-		shoulder += Vector3(lean * 0.12, -absf(lean) * 0.05, 0)
-		# Elbows bent down and outwards.
-		var elbow := Vector3(side * 0.37, 0.84, -0.13) + Vector3(lean * 0.08, 0, 0)
+		var elbow := Vector3(side * 0.37, 0.84, -0.13)
+		if full_body:
+			var hang := clampf(lean / 0.9, -1.0, 1.0)
+			shoulder = Vector3(side * 0.2 + hang * 0.1, 1.12 - absf(hang) * 0.03, 0.08)
+			elbow = Vector3(side * 0.33 + hang * 0.06, 0.95, -0.2)
+		else:
+			shoulder += Vector3(lean * 0.12, -absf(lean) * 0.05, 0)
+			# Elbows bent down and outwards.
+			elbow += Vector3(lean * 0.08, 0, 0)
 		var wrist := grip + Vector3(side * 0.01, 0.02, 0.075)
 		_place_limb(_parts["upper" + key], shoulder, elbow)
 		_place_limb(_parts["fore" + key], elbow, wrist)

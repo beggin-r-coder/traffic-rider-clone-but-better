@@ -65,7 +65,11 @@ var _fov := 72.0
 var scrape := 0.0         # >0 while grinding a guard rail (for sparks/sound)
 var wheelie := 0.0
 
-var arms: Node3D
+var arms: RiderArms
+var body: RiderBody
+var _thrown: Node3D
+var _thrown_vel := Vector3.ZERO
+var _thrown_spin := Vector3.ZERO
 
 func _ready() -> void:
 	bike = BikeVisual.new()
@@ -80,6 +84,8 @@ func _ready() -> void:
 	camera.current = true
 	arms = RiderArms.new()
 	bike.lean_node.add_child(arms)
+	body = RiderBody.new()
+	bike.lean_node.add_child(body)
 
 func reset_at(start_s: float, start_d: float) -> void:
 	s = start_s
@@ -99,7 +105,8 @@ func kmh() -> float:
 func set_view(vw: int) -> void:
 	view = vw
 	_chase_init = false
-	arms.visible = vw == Game.View.FIRST_PERSON
+	arms.full_body = vw != Game.View.FIRST_PERSON
+	body.visible = vw != Game.View.FIRST_PERSON
 
 # ------------------------------------------------------------------ simulation
 
@@ -180,8 +187,8 @@ func _steering(dt: float, k_road: float) -> void:
 		var psi_max := asin(clampf(lat_max / vv, 0.0, 0.6))
 		var psi_t := steer * psi_max
 		# Gentle centring keeps the bike off the rails when the player lets go near the edge.
-		var a_lat_max := 5.5
-		var k_corr := clampf((psi_t - psi) * 2.2 / vv, -a_lat_max / (vv * vv), a_lat_max / (vv * vv))
+		var a_lat_max := 7.0
+		var k_corr := clampf((psi_t - psi) * 2.7 / vv, -a_lat_max / (vv * vv), a_lat_max / (vv * vv))
 		kappa_des = k_road + k_corr
 		lean_target = atan(vv * vv * kappa_des / G)
 	else:
@@ -191,7 +198,7 @@ func _steering(dt: float, k_road: float) -> void:
 	var low := smoothstep(2.0, 9.0, v)
 	lean_target = clampf(lean_target, -MAX_LEAN, MAX_LEAN) * low
 	# Roll dynamics: damped spring with a roll-rate limit (bikes can't flick instantly).
-	var w := 8.0
+	var w := 9.5
 	var z := 0.95
 	var acc := w * w * (lean_target - lean) - 2.0 * z * w * lean_rate
 	lean_rate = clampf(lean_rate + acc * dt, -2.4, 2.4)
@@ -215,6 +222,21 @@ func crash(reason: String) -> void:
 	_crash_roll = lean
 	_crash_cam_from = camera.global_transform
 	_cam_shake = 1.0
+	# Throw the rider off the bike.
+	_thrown = Node3D.new()
+	get_parent().add_child(_thrown)
+	var lt := bike.lean_node.global_transform
+	_thrown.global_transform = Transform3D(lt.basis, lt * Vector3(0, 1.0, 0.15))
+	for n: Node3D in [body, arms]:
+		var g := n.global_transform
+		n.get_parent().remove_child(n)
+		_thrown.add_child(n)
+		n.global_transform = g
+	body.visible = true
+	arms.full_body = true
+	arms.update_pose(0.0, 0.0, 1.0)
+	_thrown_vel = -t.basis.z * v * 0.95 + Vector3.UP * (2.5 + v * 0.04) + t.basis.x * (randf() - 0.5) * 3.0
+	_thrown_spin = Vector3(randf_range(-6, -3), randf_range(-2, 2), randf_range(-3, 3))
 	crashed.emit(reason)
 
 func _simulate_crash(dt: float) -> void:
@@ -236,6 +258,22 @@ func _simulate_crash(dt: float) -> void:
 		_crash_vel.z = hv.z
 		scrape = 1.0 if hv.length() > 2.0 else 0.0
 	_crash_spin = move_toward(_crash_spin, 0.0, dt * 1.2)
+	# Thrown rider: ballistic tumble, then slide and roll to a stop.
+	if _thrown:
+		_thrown_vel.y -= G * dt
+		var p := _thrown.global_position + _thrown_vel * dt
+		var gy := road.point(s, 0).y + 0.22
+		if p.y < gy:
+			p.y = gy
+			_thrown_vel.y = absf(_thrown_vel.y) * 0.3
+			var hv := Vector3(_thrown_vel.x, 0, _thrown_vel.z).move_toward(Vector3.ZERO, 9.0 * dt)
+			_thrown_vel.x = hv.x
+			_thrown_vel.z = hv.z
+			_thrown_spin = _thrown_spin.move_toward(Vector3.ZERO, 6.0 * dt)
+		var b := _thrown.global_transform.basis
+		if _thrown_spin.length() > 0.001:
+			b = b.rotated(_thrown_spin.normalized(), _thrown_spin.length() * dt)
+		_thrown.global_transform = Transform3D(b.orthonormalized(), p)
 	_crash_basis = _crash_basis.rotated(Vector3.UP, _crash_spin * dt).orthonormalized()
 	_crash_roll = move_toward(_crash_roll, signf(_crash_roll + 0.001) * PI * 0.47, dt * 4.0)
 	v = Vector3(_crash_vel.x, 0, _crash_vel.z).length()
@@ -265,6 +303,7 @@ func update_visuals(dt: float) -> void:
 	bike.roll(v * dt)
 	bike.set_brake_light(brake > 0.1)
 	arms.update_pose(steer, lean, dt)
+	body.update_pose(lean, dt)
 	if view == Game.View.FIRST_PERSON:
 		_update_fp_camera(t, dt)
 	else:
@@ -282,9 +321,9 @@ func _update_fp_camera(t: Transform3D, dt: float) -> void:
 	target_head.z -= clampf((v - 40.0) / 40.0, 0.0, 1.0) * 0.04
 	_head_offset = _head_offset.lerp(target_head, 1.0 - exp(-8.0 * dt))
 	var lean_b := Basis(Vector3.BACK, -lean)
-	var origin := t * (lean_b * _head_offset)
+	var origin := t * (Basis(Vector3.BACK, -lean * 0.85) * _head_offset)
 	# Head stays more upright than the bike (riders counter the lean with their neck).
-	var cam_roll := -lean * 0.45
+	var cam_roll := -lean * 0.42
 	var look_yaw := -curvature * clampf(v, 0.0, 60.0) * 0.12
 	var look_pitch := deg_to_rad(-5.0) - wheelie * 0.02
 	var b := t.basis * Basis(Vector3.UP, look_yaw) * Basis(Vector3.BACK, cam_roll) * Basis(Vector3.RIGHT, look_pitch)
@@ -298,15 +337,15 @@ func _update_fp_camera(t: Transform3D, dt: float) -> void:
 	camera.fov = _fov
 
 func _update_chase_camera(t: Transform3D, dt: float) -> void:
-	var back := 4.6 + clampf(v / 80.0, 0.0, 1.0) * 1.0
-	var up := 1.75
+	var back := 3.1 + clampf(v / 80.0, 0.0, 1.0) * 0.7
+	var up := 1.35
 	var target := Transform3D(t.basis * Basis(Vector3.BACK, -lean * 0.25), t.origin + t.basis.y * up + t.basis.z * back)
 	if not _chase_init:
 		_chase_xf = target
 		_chase_init = true
 	_chase_xf.origin = _chase_xf.origin.lerp(target.origin, 1.0 - exp(-10.0 * dt))
 	_chase_xf.basis = _chase_xf.basis.slerp(target.basis.orthonormalized(), 1.0 - exp(-8.0 * dt))
-	var look_at_p := t.origin + t.basis.y * 0.9 - t.basis.z * 6.0
+	var look_at_p := t.origin + t.basis.y * 1.0 - t.basis.z * 8.0
 	var xf := _chase_xf.looking_at(look_at_p, _chase_xf.basis.y)
 	var sh := _shake_vec(_cam_shake * 0.05)
 	xf.origin += xf.basis.x * sh.x + xf.basis.y * sh.y

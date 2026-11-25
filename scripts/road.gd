@@ -245,7 +245,7 @@ func _build_chunk(k: int) -> Node3D:
 			t.basis = t.basis.rotated(t.basis.y, PI)
 		lamps.append(t)
 		if night:
-			var g := xform(s_lamp, side * (RAIL_D - 3.4), 0.03)
+			var g := xform(s_lamp, side * (RAIL_D - 2.6), 0.03)
 			glows.append(g)
 		s_lamp += 50.0
 	if not lamps.is_empty():
@@ -442,13 +442,13 @@ func _build_materials() -> void:
 	_mat_lamp.albedo_color = Color(1, 0.9, 0.7)
 	_mat_lamp.emission_enabled = night
 	_mat_lamp.emission = Color(1.0, 0.8, 0.5)
-	_mat_lamp.emission_energy_multiplier = 5.0
+	_mat_lamp.emission_energy_multiplier = 12.0
 	_mat_glow = StandardMaterial3D.new()
 	_mat_glow.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	_mat_glow.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	_mat_glow.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
 	_mat_glow.albedo_texture = _radial_tex()
-	_mat_glow.albedo_color = Color(1.0, 0.72, 0.4, 0.55)
+	_mat_glow.albedo_color = Color(1.0, 0.7, 0.38, 0.85)
 	_mat_glow.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
 
 func _radial_tex() -> GradientTexture2D:
@@ -480,6 +480,6 @@ func _build_props() -> void:
 	_mesh_post = Props.box(Vector3(0.1, 0.8, 0.1), Vector3(0, 0.4, 0))
 	_mesh_sign = Props.sign(_mat(Color(0.05, 0.38, 0.18), 0.6), _mat_pole)
 	var q := QuadMesh.new()
-	q.size = Vector2(9.0, 9.0)
+	q.size = Vector2(14.0, 14.0)
 	q.orientation = PlaneMesh.FACE_Y
 	_mesh_glow = q

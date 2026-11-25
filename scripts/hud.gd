@@ -27,6 +27,7 @@ var _touches := {}      # index -> zone name
 var _tilt_neutral := 0.0
 var _tilt_smooth := 0.0
 var _font: Font
+var speed_fx: ColorRect
 
 func setup(w) -> void:
 	world = w
@@ -37,6 +38,13 @@ func setup(w) -> void:
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(root)
 	_font = ThemeDB.fallback_font
+	speed_fx = ColorRect.new()
+	speed_fx.set_anchors_preset(Control.PRESET_FULL_RECT)
+	speed_fx.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var sm := ShaderMaterial.new()
+	sm.shader = preload("res://shaders/speed_lines.gdshader")
+	speed_fx.material = sm
+	root.add_child(speed_fx)
 
 	# --- top-left: score ---
 	var tl := _panel(Vector2(18, 14), Vector2(270, 84))
@@ -249,6 +257,10 @@ func refresh(dt: float) -> void:
 	var r: Rider = world.rider
 	score_lbl.text = _fmt(int(world.score))
 	dist_lbl.text = "%.2f km   %s" % [r.distance / 1000.0, Game.MODE_NAMES[Game.mode]]
+	var vs := root.get_viewport_rect().size
+	var sfx_mat := speed_fx.material as ShaderMaterial
+	sfx_mat.set_shader_parameter("amount", clampf((r.kmh() - 170.0) / 110.0, 0.0, 1.0) if not r.is_crashed else 0.0)
+	sfx_mat.set_shader_parameter("aspect", vs.x / maxf(vs.y, 1.0))
 	speedo.speed = r.kmh()
 	speedo.rpm = r.rpm
 	speedo.gear = r.gear
@@ -330,8 +342,10 @@ func _modal(title: String) -> Array:
 	sb.border_color = Color(1, 1, 1, 0.08)
 	sb.set_border_width_all(2)
 	box.add_theme_stylebox_override("panel", sb)
-	box.set_anchors_preset(Control.PRESET_CENTER)
-	shade.add_child(box)
+	var cc := CenterContainer.new()
+	cc.set_anchors_preset(Control.PRESET_FULL_RECT)
+	shade.add_child(cc)
+	cc.add_child(box)
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 12)
 	box.add_child(v)
@@ -340,10 +354,8 @@ func _modal(title: String) -> Array:
 	v.add_child(t)
 	return [shade, box, v]
 
-func _center(box: Control) -> void:
-	await get_tree().process_frame
-	box.reset_size()
-	box.position = -box.size * 0.5
+func _center(_box: Control) -> void:
+	pass
 
 func _button(parent: Control, text: String, cb: Callable, primary: bool = false) -> Button:
 	var b := Button.new()

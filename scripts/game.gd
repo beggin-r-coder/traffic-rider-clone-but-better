@@ -61,6 +61,9 @@ func _ready() -> void:
 	run_seed = int(flag("seed", str(randi() % 100000)))
 	if has_flag("fps"):
 		Engine.max_fps = int(flag("fps", "60"))
+	if has_flag("dyntest"):
+		_dyn_test.call_deferred()
+		return
 	if has_flag("audiotest"):
 		BikeAudio.self_test()
 		get_tree().quit()
@@ -131,6 +134,33 @@ func load_save() -> void:
 	bike_color = c.get_value("progress", "bike_color", 0)
 	mode = c.get_value("run", "mode", mode)
 	time_of_day = c.get_value("run", "time_of_day", time_of_day)
+
+## Prints the bike's response to a steering step at 150 km/h (--dyntest [--pro]).
+func _dyn_test() -> void:
+	var road := Road.new()
+	add_child(road)
+	road.setup(1, false, false)
+	var r := Rider.new()
+	add_child(r)
+	r.road = road
+	r.assist = not has_flag("pro")
+	r.v = float(flag("kmh", "150")) / 3.6
+	r.gear = 4
+	r.d = 1.8
+	var dt := 1.0 / 60.0
+	var t := 0.0
+	print("[dyn] assist=", r.assist, " v=", r.kmh())
+	while t < 3.0:
+		if r.assist:
+			r.steer = 1.0 if t < 0.6 else 0.0
+		else:
+			r.steer = 0.5 if t < 0.45 else (-0.5 if t < 0.8 else 0.0)
+		r.throttle = 0.5
+		r.simulate(dt)
+		if int(round(t * 60.0)) % 6 == 0:
+			print("[dyn] t=%.1f steer=%+.1f lean=%+5.1f psi=%+5.2f d=%5.2f kmh=%.0f" % [t, r.steer, rad_to_deg(r.lean), rad_to_deg(r.psi), r.d, r.kmh()])
+		t += dt
+	get_tree().quit()
 
 ## Saves a screenshot of the main viewport.
 func save_shot(path: String) -> void:
