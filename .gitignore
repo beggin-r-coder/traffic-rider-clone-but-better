@@ -1,0 +1,5 @@
+.godot/
+*.tmp
+/android/
+/build/
+export_presets.cfg.bak
