@@ -18,6 +18,7 @@ var env: Environment
 var backdrop: MeshInstance3D
 var headlight: SpotLight3D
 var sparks: GPUParticles3D
+var sky_info := {}
 
 var state := State.COUNTDOWN
 var countdown := 3.0
@@ -124,7 +125,7 @@ func _ready() -> void:
 	if Game.has_flag("nocountdown") or autopilot:
 		countdown = 0.6 if autopilot else 0.0
 	if autopilot:
-		print("[autotest] start mode=%s time=%s seed=%d view=%d" % [Game.MODE_NAMES[Game.mode], Game.TIME_NAMES[Game.time_of_day], Game.run_seed, Game.view])
+		print("[autotest] start mode=%s time=%s seed=%d view=%d sky=%s" % [Game.MODE_NAMES[Game.mode], Game.TIME_NAMES[Game.time_of_day], Game.run_seed, Game.view, str(sky_info)])
 
 # ------------------------------------------------------------------ environment
 
@@ -148,14 +149,24 @@ func _build_environment() -> void:
 	var tod := Game.time_of_day
 	var we := WorldEnvironment.new()
 	env = Environment.new()
-	var sky_mat := ProceduralSkyMaterial.new()
+	# --- sky: a cloudy panorama picked for the time of day ---
+	var sky_id := int(Game.flag("sky", str(SkyLibrary.pick(tod, Game.run_seed))))
+	var pano: Texture2D = load(SkyLibrary.path(sky_id))
+	var info := SkyLibrary.analyze(pano)
+	sky_info = info
+	sky_info["id"] = sky_id
+	var sky_mat := ShaderMaterial.new()
+	sky_mat.shader = preload("res://shaders/sky_panorama.gdshader")
+	sky_mat.set_shader_parameter("panorama", pano)
 	var sky := Sky.new()
 	sky.sky_material = sky_mat
-	sky.radiance_size = Sky.RADIANCE_SIZE_64
+	sky.radiance_size = Sky.RADIANCE_SIZE_128 if Game.quality > 0 else Sky.RADIANCE_SIZE_64
+	sky.process_mode = Sky.PROCESS_MODE_QUALITY
 	env.background_mode = Environment.BG_SKY
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
 	env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
+	env.ambient_light_sky_contribution = 1.0
 	env.tonemap_mode = Environment.TONE_MAPPER_ACES
 	env.tonemap_exposure = 1.05
 	env.tonemap_white = 6.0
@@ -166,68 +177,79 @@ func _build_environment() -> void:
 	env.fog_enabled = true
 	env.fog_mode = Environment.FOG_MODE_DEPTH
 	env.fog_depth_curve = 1.6
-	env.fog_sky_affect = 0.25
+	env.fog_sky_affect = 0.0
 	env.adjustment_enabled = true
-	env.adjustment_saturation = 1.15
-	env.adjustment_contrast = 1.1
+	env.adjustment_saturation = 1.12
+	env.adjustment_contrast = 1.08
 	sun = DirectionalLight3D.new()
 	sun.shadow_enabled = Game.quality > 0
 	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
 	sun.directional_shadow_max_distance = 70.0
 	sun.shadow_blur = 1.0
+	# Rotate the panorama so its sun sits where it lights the scene nicely at the start
+	# (ahead for sunsets, off to the side during the day), then aim the light at it.
+	var desired_az: float
+	var exposure := 1.0
+	var sun_energy := 1.5
+	var amb_energy := 0.85
+	var min_elev := deg_to_rad(12.0)
 	match tod:
-		Game.TimeOfDay.DAY:
-			sky_mat.sky_top_color = Color(0.12, 0.33, 0.72)
-			sky_mat.sky_horizon_color = Color(0.6, 0.74, 0.9)
-			sky_mat.sky_curve = 0.12
-			sky_mat.ground_horizon_color = Color(0.6, 0.74, 0.9)
-			sky_mat.ground_bottom_color = Color(0.3, 0.32, 0.3)
-			sky_mat.sun_angle_max = 20.0
-			sun.light_color = Color(1.0, 0.96, 0.88)
-			sun.light_energy = 1.45
-			sun.rotation_degrees = Vector3(-38, -150, 0)
-			env.ambient_light_energy = 1.0
-			env.ambient_light_sky_contribution = 0.75
-			env.ambient_light_color = Color(0.75, 0.78, 0.8)
-			env.fog_light_color = Color(0.64, 0.75, 0.88)
-			env.fog_depth_begin = 120.0
-			env.fog_depth_end = 1300.0
 		Game.TimeOfDay.SUNSET:
-			var ss := ShaderMaterial.new()
-			ss.shader = preload("res://shaders/sunset_sky.gdshader")
-			ss.set_shader_parameter("top_color", Color(0.1, 0.13, 0.34))
-			ss.set_shader_parameter("mid_color", Color(0.55, 0.36, 0.52))
-			ss.set_shader_parameter("horizon_color", Color(1.0, 0.56, 0.3))
-			ss.set_shader_parameter("ground_color", Color(0.12, 0.1, 0.12))
-			ss.set_shader_parameter("glow_color", Color(1.0, 0.62, 0.3))
-			sky.sky_material = ss
-			sun.light_color = Color(1.0, 0.6, 0.32)
-			sun.light_energy = 1.6
-			sun.rotation_degrees = Vector3(-7, 160, 0)
-			env.ambient_light_energy = 0.9
-			env.ambient_light_sky_contribution = 0.6
-			env.ambient_light_color = Color(0.55, 0.5, 0.6)
-			env.fog_light_color = Color(0.8, 0.5, 0.42)
-			env.fog_depth_begin = 160.0
-			env.fog_depth_end = 1200.0
+			desired_az = deg_to_rad(-18.0)
+			sky_mat.set_shader_parameter("sun_boost", 0.6)
+			exposure = 0.92
+			sun_energy = 1.5
+			amb_energy = 0.8
+			min_elev = deg_to_rad(6.0)
 		Game.TimeOfDay.NIGHT:
-			var ns := ShaderMaterial.new()
-			ns.shader = preload("res://shaders/night_sky.gdshader")
-			ns.set_shader_parameter("top_color", Color(0.008, 0.012, 0.04))
-			ns.set_shader_parameter("horizon_color", Color(0.06, 0.08, 0.15))
-			sky.sky_material = ns
-			sun.light_color = Color(0.6, 0.7, 1.0)
-			sun.light_energy = 0.3
-			sun.rotation_degrees = Vector3(-35, 150, 0)
-			sun.shadow_enabled = false
-			env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-			env.ambient_light_color = Color(0.16, 0.2, 0.32)
-			env.ambient_light_energy = 1.0
-			env.fog_light_color = Color(0.05, 0.065, 0.12)
+			desired_az = deg_to_rad(25.0)
+			exposure = 0.32
+			sun_energy = 0.28
+			amb_energy = 0.55
+			sky_mat.set_shader_parameter("star_amount", 1.0)
+			sky_mat.set_shader_parameter("sun_boost", 1.0)
+		Game.TimeOfDay.CLOUDY:
+			desired_az = deg_to_rad(40.0)
+			sun_energy = 0.7
+			amb_energy = 1.1
+			sun.shadow_opacity = 0.55
+		_:
+			desired_az = deg_to_rad(-55.0)
+			exposure = 0.9
+	var rot: float = desired_az - (float(info["sun_u"]) - 0.5) * TAU
+	sky_mat.set_shader_parameter("rotation", rot)
+	sky_mat.set_shader_parameter("exposure", exposure)
+	var sun_dir := SkyLibrary.uv_to_dir(float(info["sun_u"]), float(info["sun_v"]), rot)
+	# Keep the light a little above the horizon so shadows stay readable.
+	var flat := Vector3(sun_dir.x, 0.0, sun_dir.z).normalized()
+	var elev := clampf(asin(clampf(sun_dir.y, -1.0, 1.0)), min_elev, deg_to_rad(70.0))
+	var light_dir := (flat * cos(elev) + Vector3.UP * sin(elev)).normalized()
+	sun.basis = Basis.looking_at(-light_dir, Vector3.UP if absf(light_dir.y) < 0.99 else Vector3.FORWARD)
+	var sc: Color = info["sun_color"]
+	var scn := Color(sc.r, sc.g, sc.b) / maxf(maxf(sc.r, sc.g), maxf(sc.b, 0.001))
+	sun.light_color = Color(1, 1, 1).lerp(scn, 0.55 if tod != Game.TimeOfDay.DAY else 0.3)
+	sun.light_energy = sun_energy
+	if tod == Game.TimeOfDay.NIGHT:
+		sun.light_color = Color(0.62, 0.7, 1.0)
+		sun.shadow_enabled = false
+		env.glow_intensity = 0.9
+		env.glow_hdr_threshold = 0.9
+	env.ambient_light_energy = amb_energy
+	# Fog takes the horizon colour of the panorama so the land melts into the sky.
+	var hz: Color = info["horizon"]
+	hz = Color(hz.r, hz.g, hz.b) * exposure
+	env.fog_light_color = hz
+	match tod:
+		Game.TimeOfDay.NIGHT:
 			env.fog_depth_begin = 30.0
 			env.fog_depth_end = 650.0
-			env.glow_intensity = 0.9
-			env.glow_hdr_threshold = 0.9
+		Game.TimeOfDay.CLOUDY:
+			env.fog_depth_begin = 60.0
+			env.fog_depth_end = 900.0
+		_:
+			env.fog_depth_begin = 120.0
+			env.fog_depth_end = 1300.0
+	sky_mat.set_shader_parameter("ground_color", Color(hz.r * 0.35, hz.g * 0.38, hz.b * 0.3))
 	we.environment = env
 	add_child(we)
 	add_child(sun)
@@ -244,18 +266,9 @@ func _build_environment() -> void:
 	backdrop.mesh = cyl
 	var bm := ShaderMaterial.new()
 	bm.shader = preload("res://shaders/backdrop.gdshader")
-	var far_col: Color
-	var near_col: Color
-	match tod:
-		Game.TimeOfDay.SUNSET:
-			far_col = Color(0.62, 0.38, 0.38)
-			near_col = Color(0.32, 0.2, 0.25)
-		Game.TimeOfDay.NIGHT:
-			far_col = Color(0.03, 0.04, 0.07)
-			near_col = Color(0.015, 0.02, 0.035)
-		_:
-			far_col = Color(0.55, 0.64, 0.74)
-			near_col = Color(0.36, 0.45, 0.5)
+	# Mountains take on the sky's horizon colour (aerial perspective).
+	var far_col := hz.lerp(Color(hz.r * 0.7, hz.g * 0.78, hz.b * 0.92), 0.5)
+	var near_col := hz.lerp(Color(0.18, 0.24, 0.24) * maxf(exposure, 0.15), 0.55)
 	bm.set_shader_parameter("far_color", far_col)
 	bm.set_shader_parameter("near_color", near_col)
 	backdrop.material_override = bm

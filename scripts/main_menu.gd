@@ -155,6 +155,7 @@ func _build_ui() -> void:
 	main_panel.add_child(times)
 	for i in Game.TIME_NAMES.size():
 		var b := _seg_button(Game.TIME_NAMES[i])
+		b.custom_minimum_size = Vector2(127, 56)
 		var sel2 := func(): _select_time(i)
 		b.pressed.connect(sel2)
 		times.add_child(b)

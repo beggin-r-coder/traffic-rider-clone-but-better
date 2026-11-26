@@ -20,15 +20,19 @@ into real curves. Inspired by the traffic-racer genre, with a focus on:
 - **Procedural audio**: crossplane inline-4 engine (uneven 270-180-90-180° firing order) baked into
   RPM loops and cross-faded, plus wind, tyre roar, rail scrape, horns, near-miss whoosh, crash.
 - **Modes**: One-Way, Two-Way (oncoming lane = x2 score), Time Trial (checkpoints add time).
-  **Time of day**: Day, Sunset, Night (headlight + street-light pools).
+  **Time of day**: Day, Sunset, Night (headlight + street-light pools) and Cloudy. Each run picks one of
+  20 hand-picked cloudy sky panoramas for that time of day; the sun light, fog, ambient light and
+  distant mountains are tinted from the picture so everything matches.
 
 ## Screenshots
 
 | Cockpit | Sunset (two-way) |
 |---|---|
 | ![](docs/cockpit.png) | ![](docs/sunset.png) |
-| **Night, chase cam** | **Garage** |
-| ![](docs/night_chase.png) | ![](docs/garage.png) |
+| **Night** | **Cloudy** |
+| ![](docs/night.png) | ![](docs/cloudy.png) |
+| **Day, chase cam** | **Garage** |
+| ![](docs/day_chase.png) | ![](docs/garage.png) |
 
 ## Garage
 
@@ -86,7 +90,8 @@ Pass after `--` on the command line (read via `OS.get_cmdline_user_args()`):
 | `--shots=DIR` (`--times=a,b,c`) | save screenshots at several times, then quit |
 | `--menu --shot=PATH` (`--settings`) | screenshot the main menu (or settings) |
 | `--mode=0/1/2` | One-Way / Two-Way / Time Trial |
-| `--time=day/sunset/night` | time of day |
+| `--time=day/sunset/night/cloudy` | time of day |
+| `--sky=N` | force a specific sky panorama (see `scripts/sky_library.gd`) |
 | `--view=fp/chase` | camera |
 | `--seed=N` | road + traffic seed |
 | `--touch` | on-screen steering buttons instead of tilt |
@@ -119,4 +124,5 @@ xvfb-run -a -s "-screen 0 1280x720x24" godot --path . --rendering-method mobile 
   (`assets/bike/license.txt`).
 - Road surface: "Asphalt 02" by Rob Tuytel, [Poly Haven](https://polyhaven.com/a/asphalt_02), CC0
   (4K colour, normal and AO/roughness maps in `assets/textures/asphalt_02/`).
+- Skies: "Cloudy Skyboxes" by Screaming Brain Studios, CC0 (`assets/skies/`).
 - Everything else (lane markings, scenery, cars, audio, UI) is procedural.

@@ -6,10 +6,10 @@ const SAVE_PATH := "user://save.cfg"
 enum Mode { ONE_WAY, TWO_WAY, TIME_TRIAL }
 enum View { FIRST_PERSON, CHASE }
 enum Steering { TILT, TOUCH }
-enum TimeOfDay { DAY, SUNSET, NIGHT }
+enum TimeOfDay { DAY, SUNSET, NIGHT, CLOUDY }
 
 const MODE_NAMES := ["One-Way", "Two-Way", "Time Trial"]
-const TIME_NAMES := ["Day", "Sunset", "Night"]
+const TIME_NAMES := ["Day", "Sunset", "Night", "Cloudy"]
 
 # --- settings (persisted) ---
 var steering: int = Steering.TILT
@@ -58,7 +58,7 @@ func _ready() -> void:
 		mode = int(flag("mode", "0"))
 	if has_flag("time"):
 		var t := String(flag("time", "day"))
-		time_of_day = maxi(0, ["day", "sunset", "night"].find(t))
+		time_of_day = maxi(0, ["day", "sunset", "night", "cloudy"].find(t))
 	if has_flag("view"):
 		view = View.CHASE if flag("view", "fp") == "chase" else View.FIRST_PERSON
 	if has_flag("touch"):
