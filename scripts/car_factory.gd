@@ -183,7 +183,16 @@ static func _car(length: float, width: float, body: Array, cabin: Array, wheel_r
 					_quad(paint_st, p0 - dz, p1 - dz, p1 + dz, p0 + dz)
 				else:
 					_quad(paint_st, p0 + dz, p1 + dz, p1 - dz, p0 - dz)
-	# Window belt line strip under the glass.
+	# Close the cabin ends where they have height (e.g. van rear doors).
+	for ci in [0, cabin.size() - 1]:
+		var e: Array = cabin[ci]
+		if float(e[4]) - float(e[3]) > 0.05:
+			var pts := [Vector3(-e[1], e[3], e[0]), Vector3(-e[2], e[4], e[0]), Vector3(e[2], e[4], e[0]), Vector3(e[1], e[3], e[0])]
+			var target_st: SurfaceTool = glass_st if ci == 0 else (paint_st if boxy else glass_st)
+			if ci == 0:
+				_quad(target_st, pts[3], pts[2], pts[1], pts[0])
+			else:
+				_quad(target_st, pts[0], pts[1], pts[2], pts[3])
 	# --- lights ---
 	var front: Array = body[1]
 	var rear: Array = body[-2]
@@ -244,10 +253,10 @@ static func _truck() -> Dictionary:
 	_cap(paint_st, rings[0], true)
 	_cap(paint_st, rings[-1], false)
 	# windscreen + side windows
-	_quad(glass_st, Vector3(-1.12, 1.55, fz + 0.18), Vector3(-1.1, 2.4, fz + 0.45), Vector3(1.1, 2.4, fz + 0.45), Vector3(1.12, 1.55, fz + 0.18))
+	_quad(glass_st, Vector3(1.12, 1.55, fz + 0.18), Vector3(1.1, 2.4, fz + 0.45), Vector3(-1.1, 2.4, fz + 0.45), Vector3(-1.12, 1.55, fz + 0.18))
 	for side: float in [-1.0, 1.0]:
 		var x: float = side * 1.225
-		if side < 0:
+		if side > 0:
 			_quad(glass_st, Vector3(x, 1.6, fz + 1.4), Vector3(x, 2.35, fz + 1.4), Vector3(x, 2.35, fz + 0.6), Vector3(x, 1.6, fz + 0.4))
 		else:
 			_quad(glass_st, Vector3(x, 1.6, fz + 0.4), Vector3(x, 2.35, fz + 0.6), Vector3(x, 2.35, fz + 1.4), Vector3(x, 1.6, fz + 1.4))
@@ -316,7 +325,7 @@ static func _cap(st: SurfaceTool, ring: Array, front: bool) -> void:
 	for j in ring.size():
 		var a: Vector3 = ring[j]
 		var b: Vector3 = ring[(j + 1) % ring.size()]
-		var tri := [c, a, b] if front else [c, b, a]
+		var tri := [c, b, a] if front else [c, a, b]
 		var n: Vector3 = (tri[2] - tri[0]).cross(tri[1] - tri[0]).normalized()
 		for p in tri:
 			st.set_normal(n)
@@ -337,17 +346,17 @@ static func _box(st: SurfaceTool, center: Vector3, size: Vector3) -> void:
 	var h := size * 0.5
 	var p := func(x: float, y: float, z: float) -> Vector3: return center + Vector3(x * h.x, y * h.y, z * h.z)
 	# -Z (front)
-	_quad(st, p.call(-1, -1, -1), p.call(-1, 1, -1), p.call(1, 1, -1), p.call(1, -1, -1))
+	_quad(st, p.call(-1, -1, -1), p.call(1, -1, -1), p.call(1, 1, -1), p.call(-1, 1, -1))
 	# +Z (back)
-	_quad(st, p.call(1, -1, 1), p.call(1, 1, 1), p.call(-1, 1, 1), p.call(-1, -1, 1))
+	_quad(st, p.call(1, -1, 1), p.call(-1, -1, 1), p.call(-1, 1, 1), p.call(1, 1, 1))
 	# -X
-	_quad(st, p.call(-1, -1, 1), p.call(-1, 1, 1), p.call(-1, 1, -1), p.call(-1, -1, -1))
+	_quad(st, p.call(-1, -1, 1), p.call(-1, -1, -1), p.call(-1, 1, -1), p.call(-1, 1, 1))
 	# +X
-	_quad(st, p.call(1, -1, -1), p.call(1, 1, -1), p.call(1, 1, 1), p.call(1, -1, 1))
+	_quad(st, p.call(1, -1, -1), p.call(1, -1, 1), p.call(1, 1, 1), p.call(1, 1, -1))
 	# +Y
-	_quad(st, p.call(-1, 1, -1), p.call(-1, 1, 1), p.call(1, 1, 1), p.call(1, 1, -1))
+	_quad(st, p.call(-1, 1, -1), p.call(1, 1, -1), p.call(1, 1, 1), p.call(-1, 1, 1))
 	# -Y
-	_quad(st, p.call(-1, -1, 1), p.call(-1, -1, -1), p.call(1, -1, -1), p.call(1, -1, 1))
+	_quad(st, p.call(-1, -1, 1), p.call(1, -1, 1), p.call(1, -1, -1), p.call(-1, -1, -1))
 
 static func _wheel(tyre: SurfaceTool, rim: SurfaceTool, c: Vector3, r: float, w: float, side: float) -> void:
 	var seg := 12

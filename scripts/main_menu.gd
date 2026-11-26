@@ -13,6 +13,10 @@ var _t := 0.0
 var _mode_btns: Array[Button] = []
 var _time_btns: Array[Button] = []
 var best_lbl: Label
+var cash_lbl: Label
+var garage_panel: Control
+var _upgrade_rows := {}
+var _paint_btns: Array[Button] = []
 
 func _ready() -> void:
 	_build_scene()
@@ -20,6 +24,8 @@ func _ready() -> void:
 	if Game.has_flag("shot") and Game.has_flag("menu"):
 		if Game.has_flag("settings"):
 			_show_settings(true)
+		if Game.has_flag("garage"):
+			_show_garage(true)
 		await get_tree().create_timer(float(Game.flag("at", "1.0"))).timeout
 		await Game.save_shot(String(Game.flag("shot")))
 		get_tree().quit()
@@ -164,12 +170,16 @@ func _build_ui() -> void:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
 	main_panel.add_child(row)
+	var gar_btn := _button("Garage", Color(0.16, 0.18, 0.24), 24)
+	gar_btn.custom_minimum_size = Vector2(176, 58)
+	gar_btn.pressed.connect(func(): _show_garage(true))
+	row.add_child(gar_btn)
 	var set_btn := _button("Settings", Color(0.16, 0.18, 0.24), 24)
-	set_btn.custom_minimum_size = Vector2(205, 58)
+	set_btn.custom_minimum_size = Vector2(176, 58)
 	set_btn.pressed.connect(func(): _show_settings(true))
 	row.add_child(set_btn)
 	var view_btn := _button("", Color(0.16, 0.18, 0.24), 24)
-	view_btn.custom_minimum_size = Vector2(205, 58)
+	view_btn.custom_minimum_size = Vector2(196, 58)
 	var upd := func(): view_btn.text = "View: " + ("Cockpit" if Game.view == Game.View.FIRST_PERSON else "Chase")
 	upd.call()
 	var toggle := func():
@@ -185,13 +195,15 @@ func _build_ui() -> void:
 	credit.size = Vector2(400, 24)
 	credit.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	ui.add_child(credit)
-	var cash := _label("$%d" % Game.cash, 26, ACCENT)
-	cash.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	cash.position = Vector2(-240, 30)
-	cash.size = Vector2(200, 36)
-	cash.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	ui.add_child(cash)
+	cash_lbl = _label("$%d" % Game.cash, 30, ACCENT)
+	cash_lbl.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	cash_lbl.position = Vector2(-260, 28)
+	cash_lbl.size = Vector2(220, 40)
+	cash_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	ui.add_child(cash_lbl)
 	_build_settings()
+	_build_garage()
+	bike.set_paint(Game.bike_color)
 	_select_mode(Game.mode)
 	_select_time(Game.time_of_day)
 
@@ -253,6 +265,105 @@ func _slider_row(grid: GridContainer, title: String, lo: float, hi: float, gette
 		Game.save()
 	s.value_changed.connect(cb)
 	grid.add_child(s)
+
+func _build_garage() -> void:
+	garage_panel = PanelContainer.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.05, 0.06, 0.09, 0.93)
+	sb.set_corner_radius_all(22)
+	sb.content_margin_left = 36
+	sb.content_margin_right = 36
+	sb.content_margin_top = 24
+	sb.content_margin_bottom = 24
+	garage_panel.add_theme_stylebox_override("panel", sb)
+	garage_panel.position = Vector2(64, 50)
+	garage_panel.visible = false
+	ui.add_child(garage_panel)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 12)
+	garage_panel.add_child(v)
+	v.add_child(_label("GARAGE", 44, Color.WHITE))
+	v.add_child(_label("PAINT", 18, Color(1, 1, 1, 0.6)))
+	var paints := HBoxContainer.new()
+	paints.add_theme_constant_override("separation", 10)
+	v.add_child(paints)
+	for i in BikeVisual.PAINTS.size():
+		var b := Button.new()
+		b.custom_minimum_size = Vector2(70, 58)
+		b.focus_mode = Control.FOCUS_NONE
+		b.tooltip_text = BikeVisual.PAINTS[i][0]
+		var pick := func():
+			Game.bike_color = i
+			Game.save()
+			bike.set_paint(i)
+			_refresh_garage()
+		b.pressed.connect(pick)
+		paints.add_child(b)
+		_paint_btns.append(b)
+	v.add_child(_spacer(4))
+	v.add_child(_label("UPGRADES", 18, Color(1, 1, 1, 0.6)))
+	var grid := GridContainer.new()
+	grid.columns = 3
+	grid.add_theme_constant_override("h_separation", 22)
+	grid.add_theme_constant_override("v_separation", 10)
+	v.add_child(grid)
+	for kind in ["engine", "brakes", "handling"]:
+		var info: Array = Game.UPGRADE_INFO[kind]
+		var name_box := VBoxContainer.new()
+		name_box.add_theme_constant_override("separation", 0)
+		name_box.add_child(_label(info[0], 26, Color.WHITE))
+		name_box.add_child(_label(info[1], 15, Color(1, 1, 1, 0.55)))
+		grid.add_child(name_box)
+		var pips := _label("", 28, ACCENT)
+		grid.add_child(pips)
+		var buy := _button("", Color(0.88, 0.5, 0.04), 22)
+		buy.custom_minimum_size = Vector2(170, 54)
+		var do_buy := func():
+			Game.buy_upgrade(kind)
+			_refresh_garage()
+		buy.pressed.connect(do_buy)
+		grid.add_child(buy)
+		_upgrade_rows[kind] = [pips, buy]
+	var back := _button("Done", Color(0.16, 0.18, 0.24), 26)
+	back.custom_minimum_size = Vector2(240, 60)
+	back.pressed.connect(func(): _show_garage(false))
+	v.add_child(back)
+	_refresh_garage()
+
+func _refresh_garage() -> void:
+	cash_lbl.text = "$%d" % Game.cash
+	for i in _paint_btns.size():
+		var b := _paint_btns[i]
+		var col: Color = BikeVisual.PAINTS[i][4]
+		for st in ["normal", "hover", "pressed"]:
+			var sb := StyleBoxFlat.new()
+			sb.bg_color = col if st != "hover" else col.lightened(0.1)
+			sb.set_corner_radius_all(12)
+			sb.border_color = Color.WHITE if i == Game.bike_color else Color(1, 1, 1, 0.15)
+			sb.set_border_width_all(4 if i == Game.bike_color else 2)
+			b.add_theme_stylebox_override(st, sb)
+	for kind in _upgrade_rows:
+		var lvl := Game.upgrade_level(kind)
+		var pips: Label = _upgrade_rows[kind][0]
+		var buy: Button = _upgrade_rows[kind][1]
+		var t := ""
+		for k in Game.UPGRADE_MAX:
+			t += "■ " if k < lvl else "□ "
+		pips.text = t
+		if lvl >= Game.UPGRADE_MAX:
+			buy.text = "MAX"
+			buy.disabled = true
+		else:
+			var cost := Game.upgrade_cost(kind)
+			buy.text = "$%d" % cost
+			buy.disabled = Game.cash < cost
+		buy.modulate.a = 0.45 if buy.disabled else 1.0
+
+func _show_garage(on: bool) -> void:
+	garage_panel.visible = on
+	main_panel.visible = not on
+	if on:
+		_refresh_garage()
 
 func _show_settings(on: bool) -> void:
 	settings_panel.visible = on

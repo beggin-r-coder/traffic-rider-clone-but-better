@@ -24,6 +24,13 @@ var best_scores := {}              # mode(int) -> score
 var best_distance := 0.0
 var cash := 0
 var bike_color := 0
+var upgrades := {"engine": 0, "brakes": 0, "handling": 0}
+const UPGRADE_MAX := 5
+const UPGRADE_INFO := {
+	"engine": ["Engine", "+power, +top speed"],
+	"brakes": ["Brakes", "shorter stopping"],
+	"handling": ["Handling", "quicker lean & tighter lines"],
+}
 
 # --- per-run configuration ---
 var mode: int = Mode.ONE_WAY
@@ -56,6 +63,10 @@ func _ready() -> void:
 		view = View.CHASE if flag("view", "fp") == "chase" else View.FIRST_PERSON
 	if has_flag("touch"):
 		steering = Steering.TOUCH
+	if has_flag("cash"):
+		cash = int(flag("cash", "0"))
+	if has_flag("paint"):
+		bike_color = int(flag("paint", "0"))
 	if has_flag("quality"):
 		quality = int(flag("quality", "1"))
 	run_seed = int(flag("seed", str(randi() % 100000)))
@@ -100,6 +111,22 @@ func submit_run(m: int, score: int, distance: float, earned: int) -> bool:
 	save()
 	return is_best
 
+func upgrade_level(kind: String) -> int:
+	return int(upgrades.get(kind, 0))
+
+func upgrade_cost(kind: String) -> int:
+	return int(round(400.0 * pow(upgrade_level(kind) + 1.0, 1.7) / 10.0)) * 10
+
+func buy_upgrade(kind: String) -> bool:
+	var lvl := upgrade_level(kind)
+	var cost := upgrade_cost(kind)
+	if lvl >= UPGRADE_MAX or cash < cost:
+		return false
+	cash -= cost
+	upgrades[kind] = lvl + 1
+	save()
+	return true
+
 func save() -> void:
 	if has_flag("nosave"):
 		return
@@ -114,6 +141,7 @@ func save() -> void:
 	c.set_value("progress", "best_distance", best_distance)
 	c.set_value("progress", "cash", cash)
 	c.set_value("progress", "bike_color", bike_color)
+	c.set_value("progress", "upgrades", upgrades)
 	c.set_value("run", "mode", mode)
 	c.set_value("run", "time_of_day", time_of_day)
 	c.save(SAVE_PATH)
@@ -132,6 +160,9 @@ func load_save() -> void:
 	best_distance = c.get_value("progress", "best_distance", 0.0)
 	cash = c.get_value("progress", "cash", 0)
 	bike_color = c.get_value("progress", "bike_color", 0)
+	var up: Dictionary = c.get_value("progress", "upgrades", {})
+	for k in up:
+		upgrades[k] = int(up[k])
 	mode = c.get_value("run", "mode", mode)
 	time_of_day = c.get_value("run", "time_of_day", time_of_day)
 

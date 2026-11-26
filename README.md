@@ -22,6 +22,20 @@ into real curves. Inspired by the traffic-racer genre, with a focus on:
 - **Modes**: One-Way, Two-Way (oncoming lane = x2 score), Time Trial (checkpoints add time).
   **Time of day**: Day, Sunset, Night (headlight + street-light pools).
 
+## Screenshots
+
+| Cockpit | Sunset (two-way) |
+|---|---|
+| ![](docs/cockpit.png) | ![](docs/sunset.png) |
+| **Night, chase cam** | **Garage** |
+| ![](docs/night_chase.png) | ![](docs/garage.png) |
+
+## Garage
+
+Cash earned from runs buys **Engine**, **Brakes** and **Handling** upgrades (5 levels each), and the
+bike can be repainted (the paint shader only recolours the blue livery, so decals stay intact).
+Test flags: `--cash=N`, `--paint=N`, `--menu --garage --shot=PATH`.
+
 ## Controls
 
 | | Phone | Keyboard (desktop testing) |

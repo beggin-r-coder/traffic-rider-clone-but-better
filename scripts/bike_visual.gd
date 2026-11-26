@@ -8,13 +8,14 @@ class_name BikeVisual
 
 const MODEL := preload("res://assets/bike/scene.gltf")
 
-## Paint colours selectable in the garage (tints the main body decals).
+## Paint schemes selectable in the garage: [name, hue shift, saturation x, value x, swatch].
 const PAINTS := [
-	Color(1, 1, 1),            # factory livery
-	Color(0.95, 0.2, 0.18),
-	Color(0.25, 0.25, 0.28),
-	Color(0.2, 0.75, 0.35),
-	Color(1.0, 0.7, 0.15),
+	["Racing Blue", 0.0, 1.0, 1.0, Color(0.1, 0.2, 0.75)],
+	["Rosso", 0.32, 1.1, 1.25, Color(0.85, 0.08, 0.08)],
+	["Midnight", 0.0, 0.15, 0.35, Color(0.12, 0.12, 0.14)],
+	["Acid Green", -0.37, 1.0, 1.5, Color(0.35, 0.85, 0.1)],
+	["Sunburst", 0.42, 1.1, 1.8, Color(1.0, 0.55, 0.05)],
+	["Pearl", 0.0, 0.05, 2.6, Color(0.9, 0.9, 0.92)],
 ]
 
 var lean_node: Node3D
@@ -26,8 +27,8 @@ var front_hub := Vector3.ZERO
 var rear_hub := Vector3.ZERO
 var _wheel_angle := 0.0
 var _taillight_mats: Array[StandardMaterial3D] = []
-var _paint_mats: Array[BaseMaterial3D] = []
-var _paint_base: Array[Color] = []
+var _paint_mats: Array[ShaderMaterial] = []
+var _paint_cache := {}
 
 func _ready() -> void:
 	lean_node = Node3D.new()
@@ -63,11 +64,8 @@ func _setup_model(model: Node3D) -> void:
 				var m := _dup_mat(mi)
 				if m:
 					_taillight_mats.append(m)
-			"Main_Decals":
-				var m2 := _dup_mat(mi)
-				if m2:
-					_paint_mats.append(m2)
-					_paint_base.append(m2.albedo_color)
+			"Main_Decals", "Main_Decals_-_Plastics", "Front_End", "Front_End_-_Plastics":
+				_make_paintable(mi)
 			"Glass", "Windshield":
 				var g := _dup_mat(mi)
 				if g:
@@ -224,7 +222,25 @@ func set_brake_light(on: bool) -> void:
 		m.emission = Color(1, 0.05, 0.02)
 		m.emission_energy_multiplier = 6.0 if on else 1.2
 
+func _make_paintable(mi: MeshInstance3D) -> void:
+	for si in mi.mesh.get_surface_count():
+		var m := mi.mesh.surface_get_material(si) as BaseMaterial3D
+		if m == null or m.albedo_texture == null:
+			continue
+		var sm: ShaderMaterial = _paint_cache.get(m)
+		if sm == null:
+			sm = ShaderMaterial.new()
+			sm.shader = preload("res://shaders/bike_paint.gdshader")
+			sm.set_shader_parameter("albedo_tex", m.albedo_texture)
+			sm.set_shader_parameter("roughness", maxf(m.roughness, 0.12))
+			sm.set_shader_parameter("metallic", m.metallic)
+			_paint_cache[m] = sm
+			_paint_mats.append(sm)
+		mi.set_surface_override_material(si, sm)
+
 func set_paint(i: int) -> void:
-	var tint: Color = PAINTS[clampi(i, 0, PAINTS.size() - 1)]
-	for k in _paint_mats.size():
-		_paint_mats[k].albedo_color = _paint_base[k] * tint
+	var p: Array = PAINTS[clampi(i, 0, PAINTS.size() - 1)]
+	for sm in _paint_mats:
+		sm.set_shader_parameter("hue_shift", p[1])
+		sm.set_shader_parameter("sat_mul", p[2])
+		sm.set_shader_parameter("val_mul", p[3])

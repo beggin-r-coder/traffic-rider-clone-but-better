@@ -42,6 +42,11 @@ var steer := 0.0          # -1..1
 var throttle := 0.0       # 0..1
 var brake := 0.0          # 0..1
 var assist := true
+# Garage upgrades (multipliers set by the game from Game.upgrades).
+var power_mult := 1.0
+var top_mult := 1.0
+var brake_mult := 1.0
+var handling_mult := 1.0
 var controls_enabled := true
 
 # --- crash ---
@@ -60,7 +65,7 @@ var _cam_shake := 0.0
 var _cam_t := 0.0
 var _chase_xf := Transform3D()
 var _chase_init := false
-var _head_offset := Vector3(0, 1.23, 0.16)
+var _head_offset := Vector3(0, 1.38, 0.3)
 var _fov := 72.0
 var scrape := 0.0         # >0 while grinding a guard rail (for sparks/sound)
 var wheelie := 0.0
@@ -140,7 +145,7 @@ func simulate(dt: float) -> void:
 		_cam_shake = maxf(_cam_shake, 0.5)
 
 func _engine(dt: float) -> void:
-	var top: float = GEAR_TOP[gear - 1]
+	var top: float = GEAR_TOP[gear - 1] * top_mult
 	var wheel_rpm := v / top * REDLINE
 	# Clutch slip keeps revs up when pulling away in first.
 	var slip_rpm := 0.0
@@ -164,12 +169,12 @@ func _engine(dt: float) -> void:
 	var power_curve := 0.32 + 0.68 * smoothstep(0.18, 0.88, x) - 0.15 * smoothstep(0.96, 1.02, x)
 	var thr := throttle if shift_timer <= 0.0 else throttle * 0.15
 	var traction := cos(lean) * 0.9 + 0.1
-	var a_drive := thr * minf(POWER * power_curve / (MASS * maxf(v, 4.0)), 8.8 * traction)
+	var a_drive := thr * minf(POWER * power_mult * power_curve / (MASS * maxf(v, 4.0)), 8.8 * traction)
 	if gear == 1 and v < 14.0:
 		a_drive = thr * 8.8 * traction
 	var a_drag := 0.5 * 1.2 * CDA * v * v / MASS + 0.18
 	var a_engine_brake := (1.0 - throttle) * (0.6 + 0.08 * (7 - gear)) if v > 1.0 else 0.0
-	var a_brake := brake * 10.5 * (cos(lean) * 0.75 + 0.25)
+	var a_brake := brake * 10.5 * brake_mult * (cos(lean) * 0.75 + 0.25)
 	var a_grade := -G * road.grade_at(s)
 	accel = a_drive - a_drag - a_engine_brake - a_brake + a_grade
 	v = maxf(v + accel * dt, 0.0)
@@ -187,7 +192,7 @@ func _steering(dt: float, k_road: float) -> void:
 		var psi_max := asin(clampf(lat_max / vv, 0.0, 0.6))
 		var psi_t := steer * psi_max
 		# Gentle centring keeps the bike off the rails when the player lets go near the edge.
-		var a_lat_max := 7.0
+		var a_lat_max := 7.0 * handling_mult
 		var k_corr := clampf((psi_t - psi) * 2.7 / vv, -a_lat_max / (vv * vv), a_lat_max / (vv * vv))
 		kappa_des = k_road + k_corr
 		lean_target = atan(vv * vv * kappa_des / G)
@@ -198,10 +203,10 @@ func _steering(dt: float, k_road: float) -> void:
 	var low := smoothstep(2.0, 9.0, v)
 	lean_target = clampf(lean_target, -MAX_LEAN, MAX_LEAN) * low
 	# Roll dynamics: damped spring with a roll-rate limit (bikes can't flick instantly).
-	var w := 9.5
+	var w := 9.5 * handling_mult
 	var z := 0.95
 	var acc := w * w * (lean_target - lean) - 2.0 * z * w * lean_rate
-	lean_rate = clampf(lean_rate + acc * dt, -2.4, 2.4)
+	lean_rate = clampf(lean_rate + acc * dt, -2.4 * handling_mult, 2.4 * handling_mult)
 	lean += lean_rate * dt
 	lean = clampf(lean, -MAX_LEAN, MAX_LEAN)
 	# Path curvature from lean (dynamic) blended with direct steering at low speed (kinematic).
@@ -315,9 +320,9 @@ func _shake_vec(amount: float) -> Vector3:
 
 func _update_fp_camera(t: Transform3D, dt: float) -> void:
 	# Head position in the leaning frame: riders hang off slightly to the inside of a turn.
-	var target_head := Vector3(lean * 0.12, 1.23 - absf(lean) * 0.06, 0.16)
+	var target_head := Vector3(lean * 0.12, 1.38 - absf(lean) * 0.06, 0.3)
 	# Tuck down a bit at high speed.
-	target_head.y -= clampf((v - 40.0) / 40.0, 0.0, 1.0) * 0.06
+	target_head.y -= clampf((v - 40.0) / 40.0, 0.0, 1.0) * 0.03
 	target_head.z -= clampf((v - 40.0) / 40.0, 0.0, 1.0) * 0.04
 	_head_offset = _head_offset.lerp(target_head, 1.0 - exp(-8.0 * dt))
 	var lean_b := Basis(Vector3.BACK, -lean)
@@ -325,7 +330,7 @@ func _update_fp_camera(t: Transform3D, dt: float) -> void:
 	# Head stays more upright than the bike (riders counter the lean with their neck).
 	var cam_roll := -lean * 0.42
 	var look_yaw := -curvature * clampf(v, 0.0, 60.0) * 0.12
-	var look_pitch := deg_to_rad(-5.0) - wheelie * 0.02
+	var look_pitch := deg_to_rad(-11.0) - wheelie * 0.02
 	var b := t.basis * Basis(Vector3.UP, look_yaw) * Basis(Vector3.BACK, cam_roll) * Basis(Vector3.RIGHT, look_pitch)
 	# Engine & road vibration.
 	var vib := 0.0015 + 0.004 * clampf(v / 80.0, 0.0, 1.0) + _cam_shake * 0.02
