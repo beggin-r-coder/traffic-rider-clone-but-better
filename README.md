@@ -45,17 +45,27 @@ render layer, so it doesn't reflect itself). Low graphics falls back to sky-only
 
 ## Forest road
 
-The roadside is a dense forest built from Poly Haven plants (fir trees, young firs and pines, a
-broadleaf tree, island tree, searsia bush, shrubs and ferns). Those models are millions of triangles
-each, so they are baked offline into **impostors**: each plant is rendered from 8 directions into one
-2048x4096 colour + normal atlas (`assets/vegetation/`). In game every plant is a 2-triangle card that
-turns to face the camera, picks the nearest baked view, is lit through its normal map, sways a little
-in the wind, and casts shadows. A road chunk's whole forest (~130 plants: a fern/shrub band, then three
-staggered tree rows) is **one draw call**, with a dark forest-interior band behind the last row so no
-gaps show open land. Graphics quality scales the density (Low 55 %, Medium 85 %, High 100 %).
+A dense forest built from Poly Haven plants, layered so it has real volume but stays cheap on phones:
 
-Re-bake (needs the source glTFs from Poly Haven in a folder, and a real renderer, e.g. under xvfb):
-`godot --path . -- --bake-vegetation=/path/to/polyhaven_models`
+- **Trees (depth impostors).** Fir trees, young firs/pines, a broadleaf tree, island tree and searsia are
+  millions of triangles each, so they are baked offline from **16 directions** into one 4096x3584
+  atlas holding colour, normals and **per-pixel depth**. In game each tree is a 2-triangle card that
+  turns to the camera and, per pixel: blends the two nearest views (no popping), parallax-shifts each
+  view by its depth (the canopy has real depth as you ride past), lights and shadows the pixel at its
+  true depth, and on High writes that depth to the z-buffer so trees intersect each other and the
+  ground correctly. Species/per-tree colour variation, translucent backlighting and wind sway on top.
+  All trees in a road chunk are **one draw call**.
+- **Undergrowth (real meshes).** Ferns and shrubs right next to the rail are the actual Poly Haven
+  meshes (2-9k triangles, auto-LOD), culled beyond 100 m.
+- **Verge grass.** A strip of real Poly Haven grass tufts is baked into a texture and drawn on
+  crossed cards that sway, in two thick bands along the verge.
+- **Far band.** Behind the last row, staggered rows of baked fir frames over a dark interior, so gaps
+  never show open land.
+
+Graphics quality scales density (Low 55 %, Medium 85 %, High 100 % + depth writing).
+
+Re-bake (needs the source glTFs from Poly Haven in a folder and a real renderer, e.g. under xvfb):
+`godot --path . -- --bake-vegetation=DIR` and `godot --path . -- --bake-grass=DIR`
 
 ## Garage
 
@@ -121,7 +131,8 @@ Pass after `--` on the command line (read via `OS.get_cmdline_user_args()`):
 | `--quality=0/1/2` | graphics quality |
 | `--photo` | close 3/4 camera riding alongside the bike (for screenshots) |
 | `--audiotest` | render every procedural sound offline, check samples are finite, print peak/RMS |
-| `--bake-vegetation=DIR` | bake the roadside plant impostor atlas from Poly Haven glTFs in DIR |
+| `--bake-vegetation=DIR` | bake the tree impostor atlas (16 views, colour/normal/depth) from Poly Haven glTFs in DIR |
+| `--bake-grass=DIR` | bake the verge grass strip from Poly Haven grass_medium_02 in DIR |
 | `--bake-audio` | re-bake the engine loops into `assets/audio/` |
 
 Examples:
@@ -150,6 +161,7 @@ xvfb-run -a -s "-screen 0 1280x720x24" godot --path . --rendering-method mobile 
 - Road surface: "Asphalt 02" by Rob Tuytel, [Poly Haven](https://polyhaven.com/a/asphalt_02), CC0
   (4K colour, normal and AO/roughness maps in `assets/textures/asphalt_02/`).
 - Vegetation: fir_tree_01, fir_sapling, pine_sapling_small, tree_small_02, island_tree_02,
-  searsia_lucida, shrub_02, fern_02 from [Poly Haven](https://polyhaven.com/models), CC0 (baked to impostors).
+  searsia_lucida (baked to impostors), shrub_02, fern_02 (real meshes), grass_medium_02 (baked grass strip)
+  from [Poly Haven](https://polyhaven.com/models), CC0.
 - Skies: "Cloudy Skyboxes" by Screaming Brain Studios, CC0 (`assets/skies/`).
 - Everything else (lane markings, scenery, cars, audio, UI) is procedural.

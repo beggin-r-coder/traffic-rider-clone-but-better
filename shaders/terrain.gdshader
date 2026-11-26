@@ -20,5 +20,5 @@ void fragment() {
 	col *= 0.9 + 0.2 * n3;
 	ALBEDO = col * tint;
 	ROUGHNESS = 0.95;
-	SPECULAR = 0.2;
+	SPECULAR = 0.04;
 }

@@ -72,6 +72,11 @@ func _ready() -> void:
 	run_seed = int(flag("seed", str(randi() % 100000)))
 	if has_flag("fps"):
 		Engine.max_fps = int(flag("fps", "60"))
+	if has_flag("bake-grass"):
+		var gb = load("res://scripts/tools/impostor_baker.gd").new()
+		add_child(gb)
+		gb.run_grass.call_deferred(String(flag("bake-grass")))
+		return
 	if has_flag("bake-vegetation"):
 		var baker = load("res://scripts/tools/impostor_baker.gd").new()
 		add_child(baker)
