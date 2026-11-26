@@ -83,12 +83,26 @@ func set_first_person(fp: bool) -> void:
 		a.visible = fp
 
 func _build_fp_arms() -> void:
-	var keep_bones := {}
+	# Per side: bones that make up the arm, and the rest-pose rotation that swings the upper arm
+	# into a straight continuation of the forearm (so in first person the sleeve runs on past the
+	# elbow and out of frame instead of ending in view).
+	var arm_info := {}
 	for side in ["Left", "Right"]:
+		var ua: int = _b[side + "Arm"]
+		var fa: int = _b[side + "ForeArm"]
+		var hb: int = _b[side + "Hand"]
+		var sh_p := skel.get_bone_global_rest(ua).origin
+		var el_p := skel.get_bone_global_rest(fa).origin
+		var wr_p := skel.get_bone_global_rest(hb).origin
+		var u := (sh_p - el_p).normalized()
+		var f := (el_p - wr_p).normalized()      # continuing back past the elbow
+		var ax := u.cross(f)
+		var rot := Basis() if ax.length() < 1e-5 else Basis(ax.normalized(), u.angle_to(f))
+		var hand_bones := {}
 		for n in _b:
-			var nm := String(n)
-			if nm.begins_with(side + "Hand") or nm == side + "ForeArm":
-				keep_bones[_b[n]] = true
+			if String(n).begins_with(side + "Hand"):
+				hand_bones[_b[n]] = true
+		arm_info[side] = {"ua": ua, "fa": fa, "elbow": el_p, "rot": rot, "hand": hand_bones}
 	for mi in meshes:
 		if mi in head_meshes or mi.mesh == null:
 			continue
@@ -99,29 +113,60 @@ func _build_fp_arms() -> void:
 			var weights = arrays[Mesh.ARRAY_WEIGHTS]
 			var idx: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
 			var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+			var norms: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
 			if bones == null or weights == null or idx.is_empty():
 				continue
 			var per := int(bones.size() / verts.size())
-			# A vertex belongs to the forearm/hand if most of its weight is on those bones.
-			var on_arm := PackedByteArray()
-			on_arm.resize(verts.size())
+			var keepv := PackedByteArray()
+			keepv.resize(verts.size())
 			for v in verts.size():
-				var w := 0.0
-				for k in per:
-					if keep_bones.has(int(bones[v * per + k])):
-						w += float(weights[v * per + k])
-				on_arm[v] = 1 if w > 0.5 else 0
+				for side in arm_info:
+					var info: Dictionary = arm_info[side]
+					var w_hand := 0.0
+					var w_arm := 0.0
+					for k in per:
+						var bi := int(bones[v * per + k])
+						var w := float(weights[v * per + k])
+						if info["hand"].has(bi):
+							w_hand += w
+						elif bi == info["fa"] or bi == info["ua"]:
+							w_arm += w
+					if w_hand + w_arm < 0.6:
+						continue
+					keepv[v] = 1
+					if w_hand < 0.5:
+						# Sleeve: rigidly on the forearm; upper-arm part swung onto the forearm line.
+						var w_ua := 0.0
+						for k in per:
+							if int(bones[v * per + k]) == info["ua"]:
+								w_ua += float(weights[v * per + k])
+						if w_ua > 0.0:
+							var el: Vector3 = info["elbow"]
+							var r: Basis = info["rot"]
+							var t := clampf(w_ua * 2.0, 0.0, 1.0)
+							var moved := el + r * (verts[v] - el)
+							verts[v] = verts[v].lerp(moved, t)
+							norms[v] = norms[v].lerp(r * norms[v], t).normalized()
+						for k in per:
+							bones[v * per + k] = info["fa"] if k == 0 else 0
+							weights[v * per + k] = 1.0 if k == 0 else 0.0
+					break
 			var keep := PackedInt32Array()
 			for t in idx.size() / 3:
-				if on_arm[idx[t * 3]] and on_arm[idx[t * 3 + 1]] and on_arm[idx[t * 3 + 2]]:
+				if keepv[idx[t * 3]] and keepv[idx[t * 3 + 1]] and keepv[idx[t * 3 + 2]]:
 					keep.append(idx[t * 3])
 					keep.append(idx[t * 3 + 1])
 					keep.append(idx[t * 3 + 2])
 			if keep.is_empty():
 				continue
 			arrays[Mesh.ARRAY_INDEX] = keep
-			var fmt: int = mi.mesh.surface_get_format(si) & ~Mesh.ARRAY_FORMAT_INDEX
-			out.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays, [], {}, fmt | Mesh.ARRAY_FORMAT_INDEX)
+			arrays[Mesh.ARRAY_VERTEX] = verts
+			arrays[Mesh.ARRAY_NORMAL] = norms
+			arrays[Mesh.ARRAY_BONES] = bones
+			arrays[Mesh.ARRAY_WEIGHTS] = weights
+			arrays[Mesh.ARRAY_TANGENT] = null
+			var fmt: int = mi.mesh.surface_get_format(si) & ~Mesh.ARRAY_FORMAT_TANGENT
+			out.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays, [], {}, fmt)
 			var m: Material = mi.mesh.surface_get_material(si)
 			if m is BaseMaterial3D:
 				m = m.duplicate()
@@ -147,7 +192,7 @@ func shoulder_mid() -> Vector3:
 
 ## First-person camera mount: just above and behind the shoulders, fixed relative to the torso.
 func fp_camera_position() -> Vector3:
-	return shoulder_mid() + Vector3(0, 0.15, 0.44)
+	return shoulder_mid() + Vector3(0, 0.07, 0.42)
 
 ## Eye position (bike-leaning-frame space).
 func eye_position() -> Vector3:

@@ -375,6 +375,100 @@ func set_levers(brake: float, clutch: float) -> void:
 	if clutch_lever:
 		clutch_lever.basis = lever_basis(-1.0, clutch)
 
+# --- working rear-view mirrors ---
+var mirror_viewport: SubViewport
+var mirror_camera: Camera3D
+var _mirror_mats: Array[ShaderMaterial] = []
+var _mirror_glass: Array[MeshInstance3D] = []
+var _mirror_frame := 0
+const MIRROR_CAM_LOCAL := Vector3(0.0, 1.22, -0.25)   # behind the screen, roughly at rider eye height
+
+## Rebuilds the mirror glass with planar UVs and a material that shows the rear camera image.
+## `live` = render a real rear view (costs one extra low-res render per frame).
+func enable_mirrors(live: bool) -> void:
+	var all: Array[MeshInstance3D] = []
+	_collect(self, all)
+	if live:
+		mirror_viewport = SubViewport.new()
+		mirror_viewport.size = Vector2i(512, 160)
+		mirror_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+		mirror_viewport.msaa_3d = Viewport.MSAA_DISABLED
+		mirror_viewport.positional_shadow_atlas_size = 0
+		add_child(mirror_viewport)
+		mirror_camera = Camera3D.new()
+		mirror_camera.fov = 26.0
+		mirror_camera.near = 0.3
+		mirror_camera.far = 400.0
+		mirror_camera.cull_mask = 0xFFFFF & ~BIKE_LAYER
+		mirror_viewport.add_child(mirror_camera)
+		mirror_camera.current = true
+	for mi in all:
+		if _mat_name(mi) != "Mirrors":
+			continue
+		var xf := _rel_xform(mi)
+		var arrays := mi.mesh.surface_get_arrays(0)
+		var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		var idx: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+		for side: float in [-1.0, 1.0]:
+			var st := SurfaceTool.new()
+			st.begin(Mesh.PRIMITIVE_TRIANGLES)
+			var pts := []
+			for t in idx.size() / 3:
+				var tri := [xf * verts[idx[t * 3]], xf * verts[idx[t * 3 + 1]], xf * verts[idx[t * 3 + 2]]]
+				if signf((tri[0].x + tri[1].x + tri[2].x)) == side:
+					pts.append_array(tri)
+			if pts.is_empty():
+				continue
+			var lo: Vector3 = pts[0]
+			var hi: Vector3 = pts[0]
+			for p: Vector3 in pts:
+				lo = lo.min(p)
+				hi = hi.max(p)
+			for p: Vector3 in pts:
+				# u: 0 at the inner edge .. 1 at the outer edge; v: 0 top .. 1 bottom.
+				var u := (absf(p.x) - minf(absf(lo.x), absf(hi.x))) / maxf(absf(hi.x - lo.x), 0.001)
+				var v := 1.0 - (p.y - lo.y) / maxf(hi.y - lo.y, 0.001)
+				st.set_uv(Vector2(u, v))
+				st.set_normal(Vector3.BACK)
+				st.add_vertex(p)
+			var glass := MeshInstance3D.new()
+			glass.mesh = st.commit()
+			glass.layers = BIKE_LAYER
+			glass.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			var m := ShaderMaterial.new()
+			m.shader = preload("res://shaders/mirror.gdshader")
+			m.set_shader_parameter("live", live)
+			if live:
+				m.set_shader_parameter("rear_view", mirror_viewport.get_texture())
+			# The rear camera looks backwards, so world-left is on the image's right. The left mirror
+			# shows the right half (outer edge = far right of the image), the right mirror the left half.
+			if side < 0:
+				m.set_shader_parameter("u_start", 0.5)
+				m.set_shader_parameter("u_dir", 1.0)
+			else:
+				m.set_shader_parameter("u_start", 0.5)
+				m.set_shader_parameter("u_dir", -1.0)
+			glass.material_override = m
+			lean_node.add_child(glass)
+			glass.position = Vector3.ZERO
+			# Nudge the glass a hair towards the rider so it sits on top of the original face.
+			glass.position.z += 0.0015
+			_mirror_mats.append(m)
+			_mirror_glass.append(glass)
+		mi.visible = false
+
+## Keep the rear camera behind the rider, looking backwards (call every frame).
+func update_mirrors() -> void:
+	if mirror_camera == null:
+		return
+	var lt := lean_node.global_transform
+	var o := lt * MIRROR_CAM_LOCAL
+	mirror_camera.global_transform = Transform3D(Basis(), o).looking_at(o + lt.basis.z * 10.0 - lt.basis.y * 0.6, lt.basis.y)
+	# Medium graphics: refresh the mirrors every other frame to halve their cost.
+	if Game.quality == 1:
+		_mirror_frame += 1
+		mirror_viewport.render_target_update_mode = SubViewport.UPDATE_ONCE if _mirror_frame % 2 == 0 else SubViewport.UPDATE_DISABLED
+
 func set_brake_light(on: bool) -> void:
 	for m in _taillight_mats:
 		m.emission_enabled = true

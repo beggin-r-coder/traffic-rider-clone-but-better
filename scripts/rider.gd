@@ -91,6 +91,7 @@ func _ready() -> void:
 	add_child(camera)
 	camera.current = true
 	_add_reflection_probe()
+	bike.enable_mirrors.call_deferred(Game.quality > 0)
 	if SHOW_RIDER:
 		model = RiderModel.new()
 		model.name = "RiderModel"
@@ -339,6 +340,7 @@ func update_visuals(dt: float) -> void:
 	bike.set_brake_light(brake > 0.1)
 	if bike.dash:
 		bike.dash.set_values(kmh(), rpm, gear)
+	bike.update_mirrors()
 	if model:
 		_clutch_t = maxf(_clutch_t - dt, 0.0)
 		model.throttle = throttle
