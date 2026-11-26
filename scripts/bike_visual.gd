@@ -127,6 +127,7 @@ func _setup_model(model: Node3D) -> void:
 			target.add_child(n)
 			n.transform = _wheel_rel(mi, target)
 		mi.queue_free()
+	_split_levers(model)
 	_apply_finishes()
 
 ## Render layer for the bike itself, so the reflection probe can leave it out of its capture.
@@ -271,6 +272,93 @@ func roll(distance: float) -> void:
 	_wheel_angle = fmod(_wheel_angle - distance / maxf(wheel_radius, 0.05), TAU)
 	front_wheel.rotation.x = _wheel_angle
 	rear_wheel.rotation.x = _wheel_angle
+
+# --- brake (right) and clutch (left) levers, cut out of the merged mesh so they can pivot ---
+const LEVER_PIVOT := Vector3(0.238, 0.952, -0.494)   # right lever pivot (bike space); left is mirrored
+const LEVER_MAX_ANGLE := deg_to_rad(18.0)
+const LEVER_BOX_MIN := Vector3(0.236, 0.885, -0.53)
+const LEVER_BOX_MAX := Vector3(0.385, 0.97, -0.44)
+var brake_lever: Node3D
+var clutch_lever: Node3D
+
+## Axis the lever swings about (perpendicular to the bar, roughly "up"); for side +1 / -1.
+static func lever_axis(side: float) -> Vector3:
+	var gi := Vector3(0.228 * side, 0.959, -0.430)
+	var go := Vector3(0.348 * side, 0.921, -0.363)
+	var a := (go - gi).normalized()
+	return (Vector3.UP - a * Vector3.UP.dot(a)).normalized()
+
+## Rotation of a lever for pull 0..1 (moves the lever end back towards the grip).
+static func lever_basis(side: float, pull: float) -> Basis:
+	return Basis(lever_axis(side), -side * LEVER_MAX_ANGLE * clampf(pull, 0.0, 1.0))
+
+static func lever_pivot(side: float) -> Vector3:
+	return Vector3(LEVER_PIVOT.x * side, LEVER_PIVOT.y, LEVER_PIVOT.z)
+
+func _split_levers(model: Node3D) -> void:
+	var all: Array[MeshInstance3D] = []
+	_collect(model, all)
+	var parts := {1.0: SurfaceTool.new(), -1.0: SurfaceTool.new()}
+	var counts := {1.0: 0, -1.0: 0}
+	var lever_mat: Material = null
+	for mi in all:
+		if _mat_name(mi) != "Front_End_-_Aluminum":
+			continue
+		var xf := _rel_xform(mi)
+		var src := mi.mesh
+		var out := ArrayMesh.new()
+		for si in src.get_surface_count():
+			var arrays := src.surface_get_arrays(si)
+			var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+			var norms: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+			var uvs = arrays[Mesh.ARRAY_TEX_UV]
+			var idx: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+			lever_mat = src.surface_get_material(si)
+			var keep := PackedInt32Array()
+			for side in [1.0, -1.0]:
+				if counts[side] == 0:
+					parts[side].begin(Mesh.PRIMITIVE_TRIANGLES)
+					parts[side].set_material(lever_mat)
+			for t in idx.size() / 3:
+				var tri := [idx[t * 3], idx[t * 3 + 1], idx[t * 3 + 2]]
+				var cen := (xf * verts[tri[0]] + xf * verts[tri[1]] + xf * verts[tri[2]]) / 3.0
+				var side := signf(cen.x)
+				var q := Vector3(absf(cen.x), cen.y, cen.z)
+				var inside := q.x > LEVER_BOX_MIN.x and q.x < LEVER_BOX_MAX.x and q.y > LEVER_BOX_MIN.y and q.y < LEVER_BOX_MAX.y and q.z > LEVER_BOX_MIN.z and q.z < LEVER_BOX_MAX.z
+				if inside:
+					var piv := lever_pivot(side)
+					for v in tri:
+						parts[side].set_normal(xf.basis * norms[v])
+						if uvs != null and uvs.size() == verts.size():
+							parts[side].set_uv(uvs[v])
+						parts[side].add_vertex(xf * verts[v] - piv)
+					counts[side] += 1
+				else:
+					keep.append_array(tri)
+			arrays[Mesh.ARRAY_INDEX] = keep
+			out.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+			out.surface_set_material(si, lever_mat)
+		mi.mesh = out
+	for side in [1.0, -1.0]:
+		if counts[side] == 0:
+			continue
+		var pivot := Node3D.new()
+		pivot.name = "BrakeLever" if side > 0 else "ClutchLever"
+		pivot.position = lever_pivot(side)
+		lean_node.add_child(pivot)
+		var lm := MeshInstance3D.new()
+		lm.mesh = parts[side].commit()
+		pivot.add_child(lm)
+		if side > 0:
+			brake_lever = pivot
+		else:
+			clutch_lever = pivot
+
+func set_levers(brake: float, clutch: float) -> void:
+	if brake_lever:
+		brake_lever.basis = lever_basis(1.0, brake)
+	if clutch_lever:
+		clutch_lever.basis = lever_basis(-1.0, clutch)
 
 func set_brake_light(on: bool) -> void:
 	for m in _taillight_mats:

@@ -70,10 +70,10 @@ var _fov := 72.0
 var scrape := 0.0         # >0 while grinding a guard rail (for sparks/sound)
 var wheelie := 0.0
 
-## Placeholder procedural rider (arms + body). Off until the real biker model is added.
-const SHOW_RIDER := false
-var arms: RiderArms
-var body: RiderBody
+## The rider avatar, posed by IK onto the grips/pegs every frame (scripts/rider_model.gd).
+const SHOW_RIDER := true
+var model: RiderModel
+var _clutch_t := 0.0
 var _thrown: Node3D
 var _thrown_vel := Vector3.ZERO
 var _thrown_spin := Vector3.ZERO
@@ -91,10 +91,9 @@ func _ready() -> void:
 	camera.current = true
 	_add_reflection_probe()
 	if SHOW_RIDER:
-		arms = RiderArms.new()
-		bike.lean_node.add_child(arms)
-		body = RiderBody.new()
-		bike.lean_node.add_child(body)
+		model = RiderModel.new()
+		model.name = "RiderModel"
+		bike.lean_node.add_child(model)
 
 ## A reflection probe riding with the bike captures the road, scenery and traffic every frame,
 ## so the paint, chrome and mirrors reflect the actual world (not just the sky).
@@ -135,9 +134,8 @@ func kmh() -> float:
 func set_view(vw: int) -> void:
 	view = vw
 	_chase_init = false
-	if arms:
-		arms.full_body = vw != Game.View.FIRST_PERSON
-		body.visible = vw != Game.View.FIRST_PERSON
+	if model:
+		model.set_first_person(vw == Game.View.FIRST_PERSON and not Game.has_flag("photo"))
 
 # ------------------------------------------------------------------ simulation
 
@@ -185,11 +183,13 @@ func _engine(dt: float) -> void:
 	elif gear < 6 and rpm > 13300.0 and throttle > 0.1:
 		gear += 1
 		shift_timer = 0.16
+		_clutch_t = 0.25
 		gear_changed.emit(gear)
 		_cam_shake = maxf(_cam_shake, 0.25)
 	elif gear > 1 and rpm < (6200.0 if throttle > 0.5 else 4800.0):
 		gear -= 1
 		shift_timer = 0.12
+		_clutch_t = 0.25
 		gear_changed.emit(gear)
 	var x := clampf(rpm / REDLINE, 0.0, 1.0)
 	var power_curve := 0.32 + 0.68 * smoothstep(0.18, 0.88, x) - 0.15 * smoothstep(0.96, 1.02, x)
@@ -263,14 +263,13 @@ func _throw_rider(t: Transform3D) -> void:
 	get_parent().add_child(_thrown)
 	var lt := bike.lean_node.global_transform
 	_thrown.global_transform = Transform3D(lt.basis, lt * Vector3(0, 1.0, 0.15))
-	for n: Node3D in [body, arms]:
-		var g := n.global_transform
-		n.get_parent().remove_child(n)
-		_thrown.add_child(n)
-		n.global_transform = g
-	body.visible = true
-	arms.full_body = true
-	arms.update_pose(0.0, 0.0, 1.0)
+	if model:
+		var g := model.global_transform
+		model.get_parent().remove_child(model)
+		_thrown.add_child(model)
+		model.global_transform = g
+		model.set_first_person(false)
+		model.frozen = true
 	_thrown_vel = -t.basis.z * v * 0.95 + Vector3.UP * (2.5 + v * 0.04) + t.basis.x * (randf() - 0.5) * 3.0
 	_thrown_spin = Vector3(randf_range(-6, -3), randf_range(-2, 2), randf_range(-3, 3))
 
@@ -337,9 +336,16 @@ func update_visuals(dt: float) -> void:
 	bike.set_lean(lean)
 	bike.roll(v * dt)
 	bike.set_brake_light(brake > 0.1)
-	if arms:
-		arms.update_pose(steer, lean, dt)
-		body.update_pose(lean, dt)
+	if model:
+		_clutch_t = maxf(_clutch_t - dt, 0.0)
+		model.throttle = throttle
+		model.brake = brake
+		model.lean = lean
+		model.steer = steer
+		model.speed = v
+		model.clutch = clampf(_clutch_t / 0.12, 0.0, 1.0)
+		model.update_pose(dt)
+		bike.set_levers(model.lever_pull, model.clutch_pull)
 	if Game.has_flag("photo"):
 		# Dev/marketing camera: close 3/4 view riding alongside the bike.
 		var eye := t.origin + t.basis.x * 2.3 + t.basis.y * 1.05 - t.basis.z * 1.6
@@ -360,9 +366,10 @@ func _update_fp_camera(t: Transform3D, dt: float) -> void:
 	# Tuck down a bit at high speed.
 	target_head.y -= clampf((v - 40.0) / 40.0, 0.0, 1.0) * 0.03
 	target_head.z -= clampf((v - 40.0) / 40.0, 0.0, 1.0) * 0.04
+
 	_head_offset = _head_offset.lerp(target_head, 1.0 - exp(-8.0 * dt))
 	var lean_b := Basis(Vector3.BACK, -lean)
-	var origin := t * (Basis(Vector3.BACK, -lean * 0.85) * _head_offset)
+	var origin := t * (Basis(Vector3.BACK, -lean) * _head_offset)
 	# Head stays more upright than the bike (riders counter the lean with their neck).
 	var cam_roll := -lean * 0.42
 	var look_yaw := -curvature * clampf(v, 0.0, 60.0) * 0.12

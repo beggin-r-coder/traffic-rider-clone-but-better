@@ -34,6 +34,33 @@ into real curves. Inspired by the traffic-racer genre, with a focus on:
 | **Day, chase cam** | **Garage** |
 | ![](docs/day_chase.png) | ![](docs/garage.png) |
 
+## Rider
+
+The rider is a Ready Player Me style avatar (`assets/rider/rider.glb`) posed procedurally every frame
+by `scripts/rider_model.gd`, against contact points measured on the R1 mesh:
+
+- **Posture:** pelvis on the seat, spine curved into a sport tuck (deeper at speed), neck/head counter-
+  rotated so the eyes stay level, looking into turns; hangs off the inside of the bike when leaning.
+- **Arms:** two-bone IK from the shoulders to the clip-ons, elbows low and out.
+- **Hands:** each glove is oriented along the grip axis with the knuckles on the top-front of the bar;
+  every finger joint is solved so the next joint lands on a circle hugging the grip (grip radius +
+  finger thickness), so all four fingers wrap the bar and the thumb closes underneath. No floating.
+- **Throttle:** the right hand rolls back around the grip (up to 30°) with the throttle.
+- **Brake:** index and middle fingers lift off the grip onto the brake lever and pull it; the lever is
+  cut out of the bike mesh at load time and pivots back towards the grip with brake pressure, and the
+  fingers follow it. Gear shifts blip the left fingers on the (also pivoting) clutch lever.
+- **Legs:** IK to the footpegs, balls of the feet on the pegs, knees against the tank (inside knee out
+  when hanging off).
+- **First person:** the helmet is hidden and anything within ~0.6 m of the camera is dithered away, so
+  you see the rider's forearms and gloves on the bars.
+
+![](docs/rider_hands.png)
+![](docs/rider_poses.png)
+
+Review tool: `godot --path . res://scenes/pose_test.tscn -- --posetest=DIR` renders side/front/hand
+close-ups/first-person views for cruise, full throttle, braking and leaning (`--posenum` prints joint
+positions in the grip's frame, `--markers` shows the measured contact points).
+
 ## Shiny bike
 
 The R1 has a clear-coated metallic paint, polished aluminium/chrome parts, gold forks and real mirror
@@ -130,6 +157,7 @@ Pass after `--` on the command line (read via `OS.get_cmdline_user_args()`):
 | `--touch` | on-screen steering buttons instead of tilt |
 | `--quality=0/1/2` | graphics quality |
 | `--photo` | close 3/4 camera riding alongside the bike (for screenshots) |
+| `--posetest=DIR` | (with `res://scenes/pose_test.tscn`) render rider pose review images |
 | `--audiotest` | render every procedural sound offline, check samples are finite, print peak/RMS |
 | `--bake-vegetation=DIR` | bake the tree impostor atlas (16 views, colour/normal/depth) from Poly Haven glTFs in DIR |
 | `--bake-grass=DIR` | bake the verge grass strip from Poly Haven grass_medium_02 in DIR |
@@ -163,5 +191,6 @@ xvfb-run -a -s "-screen 0 1280x720x24" godot --path . --rendering-method mobile 
 - Vegetation: fir_tree_01, fir_sapling, pine_sapling_small, tree_small_02, island_tree_02,
   searsia_lucida (baked to impostors), shrub_02, fern_02 (real meshes), grass_medium_02 (baked grass strip)
   from [Poly Haven](https://polyhaven.com/models), CC0.
+- Rider: the supplied "bike rider 3D" avatar (Ready Player Me based), posed procedurally.
 - Skies: "Cloudy Skyboxes" by Screaming Brain Studios, CC0 (`assets/skies/`).
 - Everything else (lane markings, scenery, cars, audio, UI) is procedural.

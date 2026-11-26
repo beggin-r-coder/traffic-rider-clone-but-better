@@ -72,6 +72,8 @@ func _ready() -> void:
 	run_seed = int(flag("seed", str(randi() % 100000)))
 	if has_flag("fps"):
 		Engine.max_fps = int(flag("fps", "60"))
+	if has_flag("posetest"):
+		return
 	if has_flag("bake-grass"):
 		var gb = load("res://scripts/tools/impostor_baker.gd").new()
 		add_child(gb)
@@ -175,6 +177,16 @@ func load_save() -> void:
 		upgrades[k] = int(up[k])
 	mode = c.get_value("run", "mode", mode)
 	time_of_day = c.get_value("run", "time_of_day", time_of_day)
+
+func _start_pose_test() -> void:
+	print("[posetest] starting")
+	# Replace the menu with the pose-test scene.
+	var pt: Node3D = load("res://scripts/tools/pose_test.gd").new()
+	get_tree().root.add_child(pt)
+	if get_tree().current_scene:
+		get_tree().current_scene.queue_free()
+	get_tree().current_scene = pt
+	pt.call("run", String(flag("posetest")))
 
 ## Prints the bike's response to a steering step at 150 km/h (--dyntest [--pro]).
 func _dyn_test() -> void:
