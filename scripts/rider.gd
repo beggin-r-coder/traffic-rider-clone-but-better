@@ -70,6 +70,8 @@ var _fov := 72.0
 var scrape := 0.0         # >0 while grinding a guard rail (for sparks/sound)
 var wheelie := 0.0
 
+## Placeholder procedural rider (arms + body). Off until the real biker model is added.
+const SHOW_RIDER := false
 var arms: RiderArms
 var body: RiderBody
 var _thrown: Node3D
@@ -87,10 +89,11 @@ func _ready() -> void:
 	camera.fov = 72.0
 	add_child(camera)
 	camera.current = true
-	arms = RiderArms.new()
-	bike.lean_node.add_child(arms)
-	body = RiderBody.new()
-	bike.lean_node.add_child(body)
+	if SHOW_RIDER:
+		arms = RiderArms.new()
+		bike.lean_node.add_child(arms)
+		body = RiderBody.new()
+		bike.lean_node.add_child(body)
 
 func reset_at(start_s: float, start_d: float) -> void:
 	s = start_s
@@ -110,8 +113,9 @@ func kmh() -> float:
 func set_view(vw: int) -> void:
 	view = vw
 	_chase_init = false
-	arms.full_body = vw != Game.View.FIRST_PERSON
-	body.visible = vw != Game.View.FIRST_PERSON
+	if arms:
+		arms.full_body = vw != Game.View.FIRST_PERSON
+		body.visible = vw != Game.View.FIRST_PERSON
 
 # ------------------------------------------------------------------ simulation
 
@@ -228,6 +232,11 @@ func crash(reason: String) -> void:
 	_crash_cam_from = camera.global_transform
 	_cam_shake = 1.0
 	# Throw the rider off the bike.
+	if SHOW_RIDER:
+		_throw_rider(t)
+	crashed.emit(reason)
+
+func _throw_rider(t: Transform3D) -> void:
 	_thrown = Node3D.new()
 	get_parent().add_child(_thrown)
 	var lt := bike.lean_node.global_transform
@@ -242,7 +251,6 @@ func crash(reason: String) -> void:
 	arms.update_pose(0.0, 0.0, 1.0)
 	_thrown_vel = -t.basis.z * v * 0.95 + Vector3.UP * (2.5 + v * 0.04) + t.basis.x * (randf() - 0.5) * 3.0
 	_thrown_spin = Vector3(randf_range(-6, -3), randf_range(-2, 2), randf_range(-3, 3))
-	crashed.emit(reason)
 
 func _simulate_crash(dt: float) -> void:
 	crash_time += dt
@@ -307,8 +315,9 @@ func update_visuals(dt: float) -> void:
 	bike.set_lean(lean)
 	bike.roll(v * dt)
 	bike.set_brake_light(brake > 0.1)
-	arms.update_pose(steer, lean, dt)
-	body.update_pose(lean, dt)
+	if arms:
+		arms.update_pose(steer, lean, dt)
+		body.update_pose(lean, dt)
 	if view == Game.View.FIRST_PERSON:
 		_update_fp_camera(t, dt)
 	else:
