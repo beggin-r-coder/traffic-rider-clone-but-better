@@ -34,6 +34,15 @@ into real curves. Inspired by the traffic-racer genre, with a focus on:
 | **Day, chase cam** | **Garage** |
 | ![](docs/day_chase.png) | ![](docs/garage.png) |
 
+## Shiny bike
+
+The R1 has a clear-coated metallic paint, polished aluminium/chrome parts, gold forks and real mirror
+glass. On Medium/High graphics a reflection probe rides with the bike and re-captures the world every
+frame, so the paint and chrome reflect the actual road, trees, traffic and sky (the bike is on its own
+render layer, so it doesn't reflect itself). Low graphics falls back to sky-only reflections.
+
+![](docs/bike_reflections.png)
+
 ## Garage
 
 Cash earned from runs buys **Engine**, **Brakes** and **Handling** upgrades (5 levels each), and the
@@ -96,6 +105,7 @@ Pass after `--` on the command line (read via `OS.get_cmdline_user_args()`):
 | `--seed=N` | road + traffic seed |
 | `--touch` | on-screen steering buttons instead of tilt |
 | `--quality=0/1/2` | graphics quality |
+| `--photo` | close 3/4 camera riding alongside the bike (for screenshots) |
 | `--audiotest` | render every procedural sound offline, check samples are finite, print peak/RMS |
 | `--bake-audio` | re-bake the engine loops into `assets/audio/` |
 

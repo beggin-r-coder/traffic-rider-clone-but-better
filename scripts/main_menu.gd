@@ -92,7 +92,37 @@ func _build_scene() -> void:
 	bike = BikeVisual.new()
 	bike.position.y = 0.06
 	turntable.add_child(bike)
+	# Studio softboxes: bright panels around the bike that show up as long highlights in the paint.
+	var soft := StandardMaterial3D.new()
+	soft.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	soft.albedo_color = Color(1, 1, 1)
+	soft.emission_enabled = true
+	soft.emission = Color(1, 1, 1)
+	soft.emission_energy_multiplier = 2.5
+	soft.cull_mode = BaseMaterial3D.CULL_DISABLED
+	for b in [[Vector3(0, 4.2, 0), Vector3(-PI * 0.5, 0, 0), Vector2(5.0, 1.4)],
+			[Vector3(-4.5, 2.0, -1.0), Vector3(0, PI * 0.35, 0), Vector2(2.2, 3.2)],
+			[Vector3(3.5, 1.8, -3.5), Vector3(0, -PI * 0.2, 0), Vector2(3.0, 2.0)],
+			[Vector3(-1.5, 2.2, -5.0), Vector3(0, 0.15, 0), Vector2(4.0, 1.0)]]:
+		var q := MeshInstance3D.new()
+		var qm := QuadMesh.new()
+		qm.size = b[2]
+		q.mesh = qm
+		q.material_override = soft
+		q.position = b[0]
+		q.rotation = b[1]
+		q.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		q.layers = 4          # seen by the reflection probe, hidden from the camera
+		add_child(q)
+	var probe := ReflectionProbe.new()
+	probe.update_mode = ReflectionProbe.UPDATE_ONCE
+	probe.size = Vector3(20, 12, 20)
+	probe.origin_offset = Vector3(0, 0.8, 0)
+	probe.cull_mask = 1 | 4
+	probe.ambient_mode = ReflectionProbe.AMBIENT_ENVIRONMENT
+	add_child(probe)
 	cam = Camera3D.new()
+	cam.cull_mask = 0xFFFFF & ~4
 	cam.fov = 38.0
 	add_child(cam)
 	# Frame the bike in the right half of the screen (the menu sits on the left).

@@ -29,8 +29,10 @@ void fragment() {
 	float mask = (1.0 - smoothstep(0.06, 0.12, abs(hsv.x - 0.66))) * smoothstep(0.2, 0.45, hsv.y);
 	vec3 n = vec3(fract(hsv.x + hue_shift), clamp(hsv.y * sat_mul, 0.0, 1.0), clamp(hsv.z * val_mul, 0.0, 1.0));
 	ALBEDO = mix(c, hsv2rgb(n), mask);
+	// Glossy lacquer over everything; metallic flake in the coloured livery.
 	ROUGHNESS = roughness;
-	METALLIC = metallic;
-	CLEARCOAT = 0.8 * mask;
-	CLEARCOAT_ROUGHNESS = 0.1;
+	METALLIC = max(metallic, 0.35 * mask);
+	SPECULAR = 0.6;
+	CLEARCOAT = mix(0.7, 1.0, mask);
+	CLEARCOAT_ROUGHNESS = 0.04;
 }

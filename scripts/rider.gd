@@ -89,11 +89,33 @@ func _ready() -> void:
 	camera.fov = 72.0
 	add_child(camera)
 	camera.current = true
+	_add_reflection_probe()
 	if SHOW_RIDER:
 		arms = RiderArms.new()
 		bike.lean_node.add_child(arms)
 		body = RiderBody.new()
 		bike.lean_node.add_child(body)
+
+## A reflection probe riding with the bike captures the road, scenery and traffic every frame,
+## so the paint, chrome and mirrors reflect the actual world (not just the sky).
+var probe: ReflectionProbe
+
+func _add_reflection_probe() -> void:
+	if Game.quality <= 0:
+		return
+	probe = ReflectionProbe.new()
+	probe.name = "BikeReflections"
+	probe.update_mode = ReflectionProbe.UPDATE_ALWAYS
+	probe.size = Vector3(40, 20, 40)
+	probe.origin_offset = Vector3(0, 0.8, 0)
+	probe.max_distance = 300.0
+	probe.box_projection = false
+	probe.interior = false
+	probe.enable_shadows = false
+	probe.cull_mask = 1 << 0          # world only; the bike lives on layer 2
+	probe.ambient_mode = ReflectionProbe.AMBIENT_ENVIRONMENT
+	probe.mesh_lod_threshold = 4.0
+	bike.add_child(probe)
 
 func reset_at(start_s: float, start_d: float) -> void:
 	s = start_s
@@ -318,7 +340,12 @@ func update_visuals(dt: float) -> void:
 	if arms:
 		arms.update_pose(steer, lean, dt)
 		body.update_pose(lean, dt)
-	if view == Game.View.FIRST_PERSON:
+	if Game.has_flag("photo"):
+		# Dev/marketing camera: close 3/4 view riding alongside the bike.
+		var eye := t.origin + t.basis.x * 2.3 + t.basis.y * 1.05 - t.basis.z * 1.6
+		camera.global_transform = Transform3D(Basis(), eye).looking_at(t.origin + t.basis.y * 0.6 + t.basis.z * 0.2, t.basis.y)
+		camera.fov = 45.0
+	elif view == Game.View.FIRST_PERSON:
 		_update_fp_camera(t, dt)
 	else:
 		_update_chase_camera(t, dt)

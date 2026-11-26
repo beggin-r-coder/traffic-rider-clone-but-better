@@ -65,6 +65,8 @@ func _setup_model(model: Node3D) -> void:
 				if m:
 					_taillight_mats.append(m)
 			"Main_Decals", "Main_Decals_-_Plastics", "Front_End", "Front_End_-_Plastics":
+				if mname == "Main_Decals":
+					_strip_ground_quad(mi)
 				_make_paintable(mi)
 			"Glass", "Windshield":
 				var g := _dup_mat(mi)
@@ -125,9 +127,63 @@ func _setup_model(model: Node3D) -> void:
 			target.add_child(n)
 			n.transform = _wheel_rel(mi, target)
 		mi.queue_free()
-	for mi in meshes:
-		if is_instance_valid(mi):
-			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+	_apply_finishes()
+
+## Render layer for the bike itself, so the reflection probe can leave it out of its capture.
+const BIKE_LAYER := 2
+
+## Surface finishes: [metallic, roughness, clearcoat]. Makes the bike read as polished and shiny.
+const FINISHES := {
+	"Mechanicals-Aluminum": [1.0, 0.24, 0.0],
+	"Front_End_-_Aluminum": [1.0, 0.18, 0.0],
+	"Main_Decals_-_Aluminum": [1.0, 0.2, 0.0],
+	"Exhaust-Aluminum": [1.0, 0.16, 0.0],
+	"Muffler-Aluminum": [1.0, 0.2, 0.0],
+	"Muffler": [0.9, 0.26, 0.0],
+	"Exhaust": [0.9, 0.3, 0.0],
+	"Forks": [1.0, 0.06, 0.0],
+	"Bolts": [1.0, 0.22, 0.0],
+	"Brake_Discs": [1.0, 0.28, 0.0],
+	"Sprocket": [0.9, 0.32, 0.0],
+	"Chain": [0.8, 0.38, 0.0],
+	"Mirrors": [1.0, 0.02, 0.0],
+	"Rims": [0.25, 0.12, 1.0],
+	"Lights_-_Plastic": [0.2, 0.12, 1.0],
+	"Mechanicals": [0.35, 0.45, 0.0],
+	"Seats": [0.0, 0.55, 0.0],
+	"Display": [0.0, 0.08, 1.0],
+}
+
+func _apply_finishes() -> void:
+	var all: Array[MeshInstance3D] = []
+	_collect(self, all)
+	var cache := {}
+	for mi in all:
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+		mi.layers = BIKE_LAYER
+		for si in mi.mesh.get_surface_count():
+			if mi.get_surface_override_material(si) != null:
+				continue   # paint / glass / lights already customised
+			var m := mi.mesh.surface_get_material(si) as BaseMaterial3D
+			if m == null or not FINISHES.has(m.resource_name):
+				continue
+			var d: BaseMaterial3D = cache.get(m)
+			if d == null:
+				d = m.duplicate()
+				var f: Array = FINISHES[m.resource_name]
+				d.metallic = f[0]
+				d.roughness = f[1]
+				d.metallic_specular = 0.6
+				d.roughness_texture = null
+				d.metallic_texture = null
+				if f[2] > 0.0:
+					d.clearcoat_enabled = true
+					d.clearcoat = f[2]
+					d.clearcoat_roughness = 0.05
+				if m.resource_name == "Mirrors":
+					d.albedo_color = Color(0.92, 0.93, 0.95)
+				cache[m] = d
+			mi.set_surface_override_material(si, d)
 
 func _wheel_rel(mi: MeshInstance3D, target: Node3D) -> Transform3D:
 	return _rel_xform_node(target).affine_inverse() * _rel_xform(mi)
@@ -222,6 +278,30 @@ func set_brake_light(on: bool) -> void:
 		m.emission = Color(1, 0.05, 0.02)
 		m.emission_energy_multiplier = 6.0 if on else 1.2
 
+## The source model has a stray 25 cm textured square lying on the ground under the bike
+## (inside the decal mesh). Rebuild that mesh without triangles that sit flat at ground level.
+func _strip_ground_quad(mi: MeshInstance3D) -> void:
+	var src := mi.mesh
+	var out := ArrayMesh.new()
+	for si in src.get_surface_count():
+		var arrays := src.surface_get_arrays(si)
+		var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		var idx: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+		var keep := PackedInt32Array()
+		for t in idx.size() / 3:
+			var a := verts[idx[t * 3]]
+			var b := verts[idx[t * 3 + 1]]
+			var c := verts[idx[t * 3 + 2]]
+			if absf(a.y) < 0.004 and absf(b.y) < 0.004 and absf(c.y) < 0.004:
+				continue
+			keep.append(idx[t * 3])
+			keep.append(idx[t * 3 + 1])
+			keep.append(idx[t * 3 + 2])
+		arrays[Mesh.ARRAY_INDEX] = keep
+		out.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+		out.surface_set_material(si, src.surface_get_material(si))
+	mi.mesh = out
+
 func _make_paintable(mi: MeshInstance3D) -> void:
 	for si in mi.mesh.get_surface_count():
 		var m := mi.mesh.surface_get_material(si) as BaseMaterial3D
@@ -232,7 +312,7 @@ func _make_paintable(mi: MeshInstance3D) -> void:
 			sm = ShaderMaterial.new()
 			sm.shader = preload("res://shaders/bike_paint.gdshader")
 			sm.set_shader_parameter("albedo_tex", m.albedo_texture)
-			sm.set_shader_parameter("roughness", maxf(m.roughness, 0.12))
+			sm.set_shader_parameter("roughness", clampf(m.roughness * 0.5, 0.06, 0.16))
 			sm.set_shader_parameter("metallic", m.metallic)
 			_paint_cache[m] = sm
 			_paint_mats.append(sm)
