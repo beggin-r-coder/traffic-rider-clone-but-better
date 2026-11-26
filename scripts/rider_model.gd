@@ -70,41 +70,82 @@ func _ready() -> void:
 			p = skel.get_bone_parent(p)
 	update_pose(1.0)
 
-var _fp_mats := {}          # MeshInstance3D -> [original, fp copy] per surface
+var _fp_arms: Array[MeshInstance3D] = []   # forearm+glove-only copies, shown in first person
 
-## First person: hide the helmet/head, and dither away any part of the body within ~45 cm of the
-## camera (back, collar, shoulders) so only the arms and gloved hands remain in view.
+## First person: show only the forearms and gloves (separate meshes built from the suit by bone
+## weights), hide everything else: head, torso, shoulders, upper arms, legs. No fading, no seams.
 func set_first_person(fp: bool) -> void:
-	for m in head_meshes:
-		m.visible = not fp
+	if fp and _fp_arms.is_empty():
+		_build_fp_arms()
+	for mi in meshes:
+		mi.visible = not fp
+	for a in _fp_arms:
+		a.visible = fp
+
+func _build_fp_arms() -> void:
+	var keep_bones := {}
+	for side in ["Left", "Right"]:
+		for n in _b:
+			var nm := String(n)
+			if nm.begins_with(side + "Hand") or nm == side + "ForeArm":
+				keep_bones[_b[n]] = true
 	for mi in meshes:
 		if mi in head_meshes or mi.mesh == null:
 			continue
+		var out := ArrayMesh.new()
 		for si in mi.mesh.get_surface_count():
-			if fp:
-				var src := mi.mesh.surface_get_material(si) as BaseMaterial3D
-				if src == null:
-					continue
-				var key := [mi, si]
-				if not _fp_mats.has(key):
-					var c: BaseMaterial3D = src.duplicate()
-					c.distance_fade_mode = BaseMaterial3D.DISTANCE_FADE_PIXEL_DITHER
-					# Single-sided, so faded-away sleeves don't reveal the hollow inside of the arm.
-					c.cull_mode = BaseMaterial3D.CULL_BACK
-					c.distance_fade_min_distance = 0.6
-					c.distance_fade_max_distance = 0.68
-					_fp_mats[key] = c
-				mi.set_surface_override_material(si, _fp_mats[key])
-			else:
-				mi.set_surface_override_material(si, null)
+			var arrays := mi.mesh.surface_get_arrays(si)
+			var bones = arrays[Mesh.ARRAY_BONES]
+			var weights = arrays[Mesh.ARRAY_WEIGHTS]
+			var idx: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+			var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+			if bones == null or weights == null or idx.is_empty():
+				continue
+			var per := int(bones.size() / verts.size())
+			# A vertex belongs to the forearm/hand if most of its weight is on those bones.
+			var on_arm := PackedByteArray()
+			on_arm.resize(verts.size())
+			for v in verts.size():
+				var w := 0.0
+				for k in per:
+					if keep_bones.has(int(bones[v * per + k])):
+						w += float(weights[v * per + k])
+				on_arm[v] = 1 if w > 0.5 else 0
+			var keep := PackedInt32Array()
+			for t in idx.size() / 3:
+				if on_arm[idx[t * 3]] and on_arm[idx[t * 3 + 1]] and on_arm[idx[t * 3 + 2]]:
+					keep.append(idx[t * 3])
+					keep.append(idx[t * 3 + 1])
+					keep.append(idx[t * 3 + 2])
+			if keep.is_empty():
+				continue
+			arrays[Mesh.ARRAY_INDEX] = keep
+			var fmt: int = mi.mesh.surface_get_format(si) & ~Mesh.ARRAY_FORMAT_INDEX
+			out.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays, [], {}, fmt | Mesh.ARRAY_FORMAT_INDEX)
+			var m: Material = mi.mesh.surface_get_material(si)
+			if m is BaseMaterial3D:
+				m = m.duplicate()
+				(m as BaseMaterial3D).cull_mode = BaseMaterial3D.CULL_BACK
+			out.surface_set_material(out.get_surface_count() - 1, m)
+		if out.get_surface_count() == 0:
+			continue
+		var c := MeshInstance3D.new()
+		c.mesh = out
+		c.skin = mi.skin
+		c.layers = mi.layers
+		c.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		mi.get_parent().add_child(c)
+		c.transform = mi.transform
+		c.skeleton = c.get_path_to(skel)
+		c.visible = false
+		_fp_arms.append(c)
 
 ## Midpoint between the shoulder joints (bike-leaning-frame space).
 func shoulder_mid() -> Vector3:
 	var m := (_g[_b["LeftArm"]].origin + _g[_b["RightArm"]].origin) * 0.5
 	return Vector3(-m.x, m.y, -m.z)
 
-## First-person camera mount: just above and behind the shoulders, fixed relative to the torso so
-## the near-camera fade always cuts the body in the same place (only forearms + gloves stay visible).
+## First-person camera mount: just above and behind the shoulders, fixed relative to the torso.
 func fp_camera_position() -> Vector3:
 	return shoulder_mid() + Vector3(0, 0.15, 0.44)
 
