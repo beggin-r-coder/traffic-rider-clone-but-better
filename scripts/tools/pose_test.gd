@@ -164,7 +164,7 @@ func run(dir: String) -> void:
 		rider.set_first_person(true)
 		for variant in [[rider.fp_camera_position(), -11.0, "a"]]:
 			var eye: Vector3 = bike.lean_node.global_transform * variant[0]
-			cam.fov = 76.0
+			cam.fov = 62.0
 			cam.global_transform = Transform3D(bike.lean_node.global_transform.basis * Basis(Vector3.RIGHT, deg_to_rad(variant[1])), eye)
 			var pitch: float = variant[1]
 			await RenderingServer.frame_post_draw

@@ -89,8 +89,10 @@ func set_first_person(fp: bool) -> void:
 				if not _fp_mats.has(key):
 					var c: BaseMaterial3D = src.duplicate()
 					c.distance_fade_mode = BaseMaterial3D.DISTANCE_FADE_PIXEL_DITHER
-					c.distance_fade_min_distance = 0.45
-					c.distance_fade_max_distance = 0.48
+					# Single-sided, so faded-away sleeves don't reveal the hollow inside of the arm.
+					c.cull_mode = BaseMaterial3D.CULL_BACK
+					c.distance_fade_min_distance = 0.6
+					c.distance_fade_max_distance = 0.68
 					_fp_mats[key] = c
 				mi.set_surface_override_material(si, _fp_mats[key])
 			else:
@@ -104,7 +106,7 @@ func shoulder_mid() -> Vector3:
 ## First-person camera mount: just above and behind the shoulders, fixed relative to the torso so
 ## the near-camera fade always cuts the body in the same place (only forearms + gloves stay visible).
 func fp_camera_position() -> Vector3:
-	return shoulder_mid() + Vector3(0, 0.045, 0.40)
+	return shoulder_mid() + Vector3(0, 0.15, 0.44)
 
 ## Eye position (bike-leaning-frame space).
 func eye_position() -> Vector3:
@@ -278,11 +280,29 @@ func _pose_arm(side: float) -> void:
 	var out := Vector3(-side, 0, 0)               # rider's right side = -X in skeleton space
 	var pole := (out * 0.55 + Vector3.DOWN * 0.75 + Vector3(0, 0, -0.35)).normalized()
 	_two_bone(arm, fore, hand, wrist_target, pole)
+	# Straighten the wrist: real riders keep the hand roughly in line with the forearm. Blend the
+	# hand direction towards the forearm's line (while still reaching over the grip) and re-solve.
+	var fore_dir := (_g[hand].origin - _g[fore].origin).normalized()
+	var hand_dir := finger_dir.lerp(fore_dir, 0.6).normalized()
+	if hand_dir.dot(front_r) < 0.25:
+		hand_dir = (hand_dir + front_r * (0.25 - hand_dir.dot(front_r))).normalized()
+	wrist_target = knuckles - hand_dir * hand_len
+	_two_bone(arm, fore, hand, wrist_target, pole)
 	# Lock the wrist exactly on target and orient the hand along the grip.
 	_move(hand, wrist_target - _g[hand].origin)
 	var cur_f := _g[_bi(pre + "HandMiddle1")].origin - _g[hand].origin
 	var cur_s := _g[_bi(pre + "HandPinky1")].origin - _g[_bi(pre + "HandIndex1")].origin
-	_orient(hand, cur_f, cur_s, finger_dir, knuckle_line)
+	_orient(hand, cur_f, cur_s, hand_dir, knuckle_line)
+	# Forearm roll: a real forearm pronates with the hand, so pass most of the hand's twist (relative
+	# to its rest pose) into the forearm. Without this the skin twists like a wrung towel at the wrist.
+	var fa := (_g[hand].origin - _g[fore].origin).normalized()
+	var side_local := _g[hand].basis.orthonormalized().inverse() * knuckle_line
+	var predicted := (_g[fore].basis.orthonormalized() * _rest_local[hand].basis.orthonormalized()) * side_local
+	var p1 := (predicted - fa * predicted.dot(fa)).normalized()
+	var p2 := (knuckle_line - fa * knuckle_line.dot(fa)).normalized()
+	var twist := atan2(p1.cross(p2).dot(fa), p1.dot(p2))
+	_rot(fore, fa, twist * 0.8, _g[fore].origin)
+	_rot(hand, fa, -twist * 0.8, _g[hand].origin)
 	# Nudge the hand so the middle knuckle sits exactly on its spot (bone lengths differ per finger).
 	_move(hand, knuckles - _g[_bi(pre + "HandMiddle1")].origin)
 
