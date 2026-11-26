@@ -19,6 +19,7 @@ const PAINTS := [
 ]
 
 var lean_node: Node3D
+var dash: DashDisplay
 var front_wheel: Node3D
 var rear_wheel: Node3D
 var wheel_radius := 0.3
@@ -77,6 +78,20 @@ func _setup_model(model: Node3D) -> void:
 					g.roughness = 0.05
 					g.metallic_specular = 0.25
 					g.cull_mode = BaseMaterial3D.CULL_DISABLED
+			"Display":
+				var dm := _dup_mat(mi)
+				if dm:
+					dash = DashDisplay.new()
+					dash.name = "Dash"
+					add_child(dash)
+					dash.setup(dm.albedo_texture)
+					var vt := dash.get_texture()
+					dm.albedo_texture = vt
+					dm.emission_enabled = true
+					dm.emission_texture = vt
+					dm.emission = Color(1, 1, 1)
+					dm.emission_energy_multiplier = 0.9
+					dm.roughness = 0.15
 			"Headlights", "DRLs":
 				var h := _dup_mat(mi)
 				if h:

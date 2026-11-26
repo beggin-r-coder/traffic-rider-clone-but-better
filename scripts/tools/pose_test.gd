@@ -125,6 +125,9 @@ func run(dir: String) -> void:
 		"sideclose": [Vector3(2.2, 1.15, 0.0), Vector3(0, 0.95, -0.05), 32.0],
 		"rear34": [Vector3(1.6, 1.6, 2.2), Vector3(0, 1.0, 0.0), 36.0],
 		"front": [Vector3(0.0, 1.2, -3.0), Vector3(0, 1.0, 0.0), 30.0],
+		"feet_r": [Vector3(1.0, 0.55, 0.32), Vector3(0.24, 0.48, 0.36), 30.0],
+		"feet_rear": [Vector3(0.7, 0.75, 1.3), Vector3(0.22, 0.48, 0.36), 30.0],
+		"dash": [Vector3(0.0, 1.3, -0.25), Vector3(0.0, 1.03, -0.625), 40.0],
 		"front34": [Vector3(1.8, 1.5, -2.6), Vector3(0, 0.9, -0.2), 40.0],
 		"hand_r": [Vector3(0.75, 1.15, -0.75), Vector3(0.29, 0.94, -0.42), 30.0],
 		"hand_top": [Vector3(0.29, 1.45, -0.42), Vector3(0.29, 0.94, -0.42), 30.0],
@@ -141,11 +144,15 @@ func run(dir: String) -> void:
 		for i in 40:
 			rider.update_pose(1.0 / 30.0)
 		bike.set_levers(rider.lever_pull, rider.clutch_pull)
+		if bike.dash:
+			bike.dash.set_values(s[3] * 3.6, 6000.0 + s[0] * 7200.0, 3)
 		for vn in views:
+			if st != "cruise" and (vn.begins_with("feet") or vn == "dash"):
+				continue
 			if st == "lean" and vn.begins_with("hand"):
 				continue
 			var v: Array = views[vn]
-			var lt := bike.lean_node.global_transform if vn.begins_with("hand") else Transform3D.IDENTITY
+			var lt := bike.lean_node.global_transform if (vn.begins_with("hand") or vn == "dash") else Transform3D.IDENTITY
 			cam.fov = v[2]
 			var upv := Vector3.FORWARD if vn == "hand_top" else Vector3.UP
 			cam.global_transform = Transform3D(Basis(), lt * v[0]).looking_at(lt * v[1], upv)

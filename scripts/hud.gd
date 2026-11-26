@@ -14,7 +14,7 @@ var info_lbl: Label
 var combo_lbl: Label
 var msg_lbl: Label
 var popup_box: VBoxContainer
-var speedo: Speedo
+var speed_lbl: Label
 var pedal_gas: Pedal
 var pedal_brake: Pedal
 var steer_l: Pedal
@@ -88,13 +88,13 @@ func setup(w) -> void:
 	msg_lbl.add_theme_constant_override("outline_size", 14)
 	root.add_child(msg_lbl)
 
-	# --- speedometer ---
-	speedo = Speedo.new()
-	speedo.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-	speedo.size = Vector2(260, 150)
-	speedo.position = Vector2(-130, -160)
-	speedo.font = _font
-	root.add_child(speedo)
+	# --- compact speed readout (chase view only; in first person the bike's own dash shows it) ---
+	speed_lbl = _label("", 30, Color.WHITE)
+	speed_lbl.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	speed_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	speed_lbl.position = Vector2(-430, 26)
+	speed_lbl.size = Vector2(320, 44)
+	root.add_child(speed_lbl)
 
 	# --- pedals / steering buttons ---
 	pedal_gas = Pedal.new()
@@ -261,10 +261,8 @@ func refresh(dt: float) -> void:
 	var sfx_mat := speed_fx.material as ShaderMaterial
 	sfx_mat.set_shader_parameter("amount", clampf((r.kmh() - 170.0) / 110.0, 0.0, 1.0) if not r.is_crashed else 0.0)
 	sfx_mat.set_shader_parameter("aspect", vs.x / maxf(vs.y, 1.0))
-	speedo.speed = r.kmh()
-	speedo.rpm = r.rpm
-	speedo.gear = r.gear
-	speedo.queue_redraw()
+	speed_lbl.visible = Game.view != Game.View.FIRST_PERSON
+	speed_lbl.text = "%d km/h   %s" % [int(round(r.kmh())), ("G%d" % r.gear)]
 	if Game.mode == Game.Mode.TIME_TRIAL:
 		info_lbl.text = "%.1f" % world.time_left
 		info_lbl.add_theme_color_override("font_color", RED if world.time_left < 10.0 else Color.WHITE)
@@ -429,39 +427,6 @@ func show_game_over(score: int, distance: float, top: float, near: int, earned: 
 	_center(m[1])
 
 # ------------------------------------------------------------------ widgets
-
-class Speedo extends Control:
-	var speed := 0.0
-	var rpm := 0.0
-	var gear := 1
-	var font: Font
-
-	func _draw() -> void:
-		var c := Vector2(size.x * 0.5, size.y * 0.78)
-		var r := 104.0
-		var a0 := deg_to_rad(155.0)
-		var a1 := deg_to_rad(385.0)
-		# backing
-		draw_circle(c, r + 14, Color(0.03, 0.04, 0.06, 0.6))
-		draw_arc(c, r, a0, a1, 48, Color(1, 1, 1, 0.14), 10.0, true)
-		var x := clampf(rpm / 14000.0, 0.0, 1.0)
-		var col := Color(1.0, 0.7, 0.12) if x < 0.85 else Color(0.95, 0.22, 0.18)
-		draw_arc(c, r, a0, lerpf(a0, a1, x), 48, col, 10.0, true)
-		# redline marks
-		draw_arc(c, r + 9, lerpf(a0, a1, 0.857), a1, 12, Color(0.95, 0.22, 0.18, 0.9), 3.0, true)
-		for i in 15:
-			var a := lerpf(a0, a1, i / 14.0)
-			var d := Vector2(cos(a), sin(a))
-			draw_line(c + d * (r - 16), c + d * (r - 9 if i % 2 == 0 else r - 12), Color(1, 1, 1, 0.5), 2.0)
-		var sp := str(int(round(speed)))
-		var fs := 58
-		var w := font.get_string_size(sp, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-		draw_string(font, c + Vector2(-w * 0.5, 4), sp, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color.WHITE)
-		var unit := "KM/H"
-		var w2 := font.get_string_size(unit, HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x
-		draw_string(font, c + Vector2(-w2 * 0.5, 26), unit, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color(1, 1, 1, 0.6))
-		var g := str(gear)
-		draw_string(font, c + Vector2(-9, -50), g, HORIZONTAL_ALIGNMENT_LEFT, -1, 30, Color(1.0, 0.7, 0.12))
 
 class Pedal extends Control:
 	var kind := "gas"

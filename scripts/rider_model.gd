@@ -370,16 +370,21 @@ func _pose_leg(side: float) -> void:
 	var toe := _bi(pre + "ToeBase")
 	var peg := _sk(Vector3(PEG.x * side, PEG.y, PEG.z))
 	var inside := 1.0 if signf(_hang) == side else 0.0
-	# Ball of the foot on the peg; ankle above and behind it.
-	var ankle := peg + Vector3.UP * 0.085 + Vector3(0, 0, -0.07)
+	# Ball of the foot on the peg, foot pointing forward (slightly down and out), heel up and
+	# clear of the heel guard. The ankle is placed back from the ball by the real foot length.
 	var out := Vector3(-side, 0, 0)
+	var want_f := (Vector3(0, 0, 1) * 0.95 + Vector3.DOWN * 0.27 + out * 0.1).normalized()
+	var foot_len := (_g[toe].origin - _g[foot].origin).length()
+	var ball := peg + out * 0.02 + Vector3.UP * 0.035
+	var ankle := ball - want_f * foot_len + Vector3.UP * 0.02
 	var pole := (Vector3(0, 0, 1) * 0.95 + out * (-0.08 + inside * absf(_hang) * 0.9) + Vector3.UP * 0.25).normalized()
 	_two_bone(up_leg, leg, foot, ankle, pole)
 	_move(foot, ankle - _g[foot].origin)
 	var cur_f := _g[toe].origin - _g[foot].origin
-	var cur_s := Vector3(-1, 0, 0)
-	var want_f := (Vector3(0, 0, 1) * 0.8 + Vector3.DOWN * 0.55 + out * 0.12).normalized()
-	_orient(foot, cur_f, cur_s, want_f, Vector3(-1, 0, 0))
+	_orient(foot, cur_f, Vector3(-1, 0, 0), want_f, Vector3(-1, 0, 0))
+	# Toes flat-ish on the peg rather than pointing down.
+	var toe_end := _bi(("Right" if side > 0 else "Left") + "Toe_End")
+	_aim(toe, toe_end, _g[toe].origin + (Vector3(0, 0, 1) + out * 0.1).normalized() * 0.1)
 
 ## Convert working globals back to local bone poses.
 func _apply() -> void:

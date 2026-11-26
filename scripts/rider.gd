@@ -64,9 +64,10 @@ var view := 0             # Game.View
 var _cam_shake := 0.0
 var _cam_t := 0.0
 var _chase_xf := Transform3D()
+var _chase_prev_bike := Vector3.ZERO
 var _chase_init := false
 var _head_offset := Vector3(0, 1.38, 0.3)
-var _fov := 72.0
+var _fov := 62.0
 var scrape := 0.0         # >0 while grinding a guard rail (for sparks/sound)
 var wheelie := 0.0
 
@@ -336,6 +337,8 @@ func update_visuals(dt: float) -> void:
 	bike.set_lean(lean)
 	bike.roll(v * dt)
 	bike.set_brake_light(brake > 0.1)
+	if bike.dash:
+		bike.dash.set_values(kmh(), rpm, gear)
 	if model:
 		_clutch_t = maxf(_clutch_t - dt, 0.0)
 		model.throttle = throttle
@@ -382,25 +385,31 @@ func _update_fp_camera(t: Transform3D, dt: float) -> void:
 	var sh := _shake_vec(vib)
 	origin += b.x * sh.x + b.y * sh.y
 	camera.global_transform = Transform3D(b.orthonormalized(), origin)
-	var target_fov := 70.0 + 20.0 * clampf((v - 15.0) / 70.0, 0.0, 1.0)
+	var target_fov := 60.0 + 16.0 * clampf((v - 15.0) / 70.0, 0.0, 1.0)
 	_fov = lerpf(_fov, target_fov, 1.0 - exp(-3.0 * dt))
 	camera.fov = _fov
 
 func _update_chase_camera(t: Transform3D, dt: float) -> void:
-	var back := 3.1 + clampf(v / 80.0, 0.0, 1.0) * 0.7
-	var up := 1.35
+	var back := 2.05 + clampf(v / 80.0, 0.0, 1.0) * 0.45
+	var up := 1.2
 	var target := Transform3D(t.basis * Basis(Vector3.BACK, -lean * 0.25), t.origin + t.basis.y * up + t.basis.z * back)
 	if not _chase_init:
 		_chase_xf = target
+		_chase_prev_bike = t.origin
 		_chase_init = true
-	_chase_xf.origin = _chase_xf.origin.lerp(target.origin, 1.0 - exp(-10.0 * dt))
+	# Smooth the camera's offset from the bike (not its world position), so it doesn't trail
+	# further behind the faster you go.
+	var rel_now := _chase_xf.origin - _chase_prev_bike
+	var rel_target := target.origin - t.origin
+	_chase_xf.origin = t.origin + rel_now.lerp(rel_target, 1.0 - exp(-10.0 * dt))
+	_chase_prev_bike = t.origin
 	_chase_xf.basis = _chase_xf.basis.slerp(target.basis.orthonormalized(), 1.0 - exp(-8.0 * dt))
-	var look_at_p := t.origin + t.basis.y * 1.0 - t.basis.z * 8.0
+	var look_at_p := t.origin + t.basis.y * 0.95 - t.basis.z * 6.0
 	var xf := _chase_xf.looking_at(look_at_p, _chase_xf.basis.y)
 	var sh := _shake_vec(_cam_shake * 0.05)
 	xf.origin += xf.basis.x * sh.x + xf.basis.y * sh.y
 	camera.global_transform = xf
-	var target_fov := 65.0 + 15.0 * clampf((v - 15.0) / 70.0, 0.0, 1.0)
+	var target_fov := 58.0 + 14.0 * clampf((v - 15.0) / 70.0, 0.0, 1.0)
 	_fov = lerpf(_fov, target_fov, 1.0 - exp(-3.0 * dt))
 	camera.fov = _fov
 
