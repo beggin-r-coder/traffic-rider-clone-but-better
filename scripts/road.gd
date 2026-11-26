@@ -408,6 +408,9 @@ func _build_materials() -> void:
 	tex.noise = n
 	tex.generate_mipmaps = true
 	_mat_road.set_shader_parameter("noise_tex", tex)
+	_mat_road.set_shader_parameter("asphalt_albedo", preload("res://assets/textures/asphalt_02/asphalt_02_diff_4k.jpg"))
+	_mat_road.set_shader_parameter("asphalt_normal", preload("res://assets/textures/asphalt_02/asphalt_02_nor_gl_4k.jpg"))
+	_mat_road.set_shader_parameter("asphalt_arm", preload("res://assets/textures/asphalt_02/asphalt_02_arm_4k.jpg"))
 	_mat_road.set_shader_parameter("two_way", two_way)
 	_mat_road.set_shader_parameter("lane_w", LANE_W)
 	_mat_road.set_shader_parameter("half_w", HALF_W)

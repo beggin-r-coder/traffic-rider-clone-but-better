@@ -66,7 +66,7 @@ scripts/
   hud.gd         HUD, pedals, tilt input, pause and game-over panels
   bike_audio.gd  procedural audio synthesis + playback
   main_menu.gd   showroom menu, settings
-shaders/         road markings/asphalt, terrain, mountain backdrop, showroom floor, speed lines
+shaders/         road (scanned asphalt + markings), terrain, mountain backdrop, showroom floor, speed lines
 assets/bike/     supplied model (see license.txt)
 assets/audio/    pre-baked engine loops (regenerate with --bake-audio)
 ```
@@ -117,4 +117,6 @@ xvfb-run -a -s "-screen 0 1280x720x24" godot --path . --rendering-method mobile 
 
 - Motorcycle model: "2022 Yamaha R1" by Hari on Sketchfab, Sketchfab Standard license
   (`assets/bike/license.txt`).
-- Everything else (road, scenery, cars, rider, audio, UI) is procedural.
+- Road surface: "Asphalt 02" by Rob Tuytel, [Poly Haven](https://polyhaven.com/a/asphalt_02), CC0
+  (4K colour, normal and AO/roughness maps in `assets/textures/asphalt_02/`).
+- Everything else (lane markings, scenery, cars, audio, UI) is procedural.
