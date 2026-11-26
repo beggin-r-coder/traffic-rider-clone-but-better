@@ -47,6 +47,7 @@ var power_mult := 1.0
 var top_mult := 1.0
 var brake_mult := 1.0
 var handling_mult := 1.0
+var grip := 1.0            # < 1 in the rain
 var controls_enabled := true
 
 # --- crash ---
@@ -197,12 +198,12 @@ func _engine(dt: float) -> void:
 	var power_curve := 0.32 + 0.68 * smoothstep(0.18, 0.88, x) - 0.15 * smoothstep(0.96, 1.02, x)
 	var thr := throttle if shift_timer <= 0.0 else throttle * 0.15
 	var traction := cos(lean) * 0.9 + 0.1
-	var a_drive := thr * minf(POWER * power_mult * power_curve / (MASS * maxf(v, 4.0)), 8.8 * traction)
+	var a_drive := thr * minf(POWER * power_mult * power_curve / (MASS * maxf(v, 4.0)), 8.8 * traction * grip)
 	if gear == 1 and v < 14.0:
 		a_drive = thr * 8.8 * traction
 	var a_drag := 0.5 * 1.2 * CDA * v * v / MASS + 0.18
 	var a_engine_brake := (1.0 - throttle) * (0.6 + 0.08 * (7 - gear)) if v > 1.0 else 0.0
-	var a_brake := brake * 10.5 * brake_mult * (cos(lean) * 0.75 + 0.25)
+	var a_brake := brake * 10.5 * brake_mult * grip * (cos(lean) * 0.75 + 0.25)
 	var a_grade := -G * road.grade_at(s)
 	accel = a_drive - a_drag - a_engine_brake - a_brake + a_grade
 	v = maxf(v + accel * dt, 0.0)
@@ -220,7 +221,7 @@ func _steering(dt: float, k_road: float) -> void:
 		var psi_max := asin(clampf(lat_max / vv, 0.0, 0.6))
 		var psi_t := steer * psi_max
 		# Gentle centring keeps the bike off the rails when the player lets go near the edge.
-		var a_lat_max := 7.0 * handling_mult
+		var a_lat_max := 7.0 * handling_mult * grip
 		var k_corr := clampf((psi_t - psi) * 2.7 / vv, -a_lat_max / (vv * vv), a_lat_max / (vv * vv))
 		kappa_des = k_road + k_corr
 		lean_target = atan(vv * vv * kappa_des / G)

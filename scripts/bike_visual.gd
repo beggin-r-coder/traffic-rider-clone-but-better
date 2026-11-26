@@ -469,6 +469,55 @@ func update_mirrors() -> void:
 		_mirror_frame += 1
 		mirror_viewport.render_target_update_mode = SubViewport.UPDATE_ONCE if _mirror_frame % 2 == 0 else SubViewport.UPDATE_DISABLED
 
+# --- rain: wetter, glossier surfaces + droplet overlay pass on everything ---
+var wet_material: ShaderMaterial
+
+func set_wet(on: bool) -> void:
+	if not on:
+		return
+	wet_material = ShaderMaterial.new()
+	wet_material.shader = preload("res://shaders/wet_drops.gdshader")
+	wet_material.render_priority = 1
+	var all: Array[MeshInstance3D] = []
+	_collect(self, all)
+	var done := {}
+	for mi in all:
+		if mi.mesh == null or mi in _mirror_glass:
+			continue
+		for si in mi.mesh.get_surface_count():
+			var m := mi.get_active_material(si)
+			if m == null:
+				continue
+			if done.has(m):
+				mi.set_surface_override_material(si, done[m])
+				continue
+			if m is BaseMaterial3D:
+				var b := m as BaseMaterial3D
+				if b.transparency != BaseMaterial3D.TRANSPARENCY_DISABLED or b.shading_mode == BaseMaterial3D.SHADING_MODE_UNSHADED:
+					continue
+				var w: BaseMaterial3D = b.duplicate()
+				w.roughness = clampf(b.roughness * 0.5, 0.05, 0.4)
+				w.metallic_specular = maxf(b.metallic_specular, 0.7)
+				w.clearcoat_enabled = true
+				w.clearcoat = 1.0
+				w.clearcoat_roughness = 0.02
+				w.next_pass = wet_material
+				done[m] = w
+				mi.set_surface_override_material(si, w)
+			elif m is ShaderMaterial and (m as ShaderMaterial).shader == preload("res://shaders/bike_paint.gdshader"):
+				var sm: ShaderMaterial = (m as ShaderMaterial).duplicate()
+				sm.set_shader_parameter("roughness", 0.03)
+				sm.next_pass = wet_material
+				done[m] = sm
+				mi.set_surface_override_material(si, sm)
+				var i := _paint_mats.find(m)
+				if i >= 0:
+					_paint_mats[i] = sm
+
+func set_wet_speed(v01: float) -> void:
+	if wet_material:
+		wet_material.set_shader_parameter("speed", v01)
+
 func set_brake_light(on: bool) -> void:
 	for m in _taillight_mats:
 		m.emission_enabled = true

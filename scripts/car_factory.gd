@@ -76,6 +76,16 @@ static func _paint(c: Color) -> StandardMaterial3D:
 	m.clearcoat_roughness = 0.1
 	return m
 
+static func set_wet(on: bool) -> void:
+	_init_mats()
+	if not on:
+		return
+	for m in paint_mats:
+		m.roughness = 0.12
+		m.clearcoat = 1.0
+		m.clearcoat_roughness = 0.02
+	mat_glass.roughness = 0.01
+
 static func set_night(on: bool) -> void:
 	_init_mats()
 	mat_head.emission_energy_multiplier = 6.0 if on else 1.5

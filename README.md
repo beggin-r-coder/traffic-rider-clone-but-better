@@ -34,6 +34,28 @@ into real curves. Inspired by the traffic-racer genre, with a focus on:
 | **Day, chase cam** | **Garage** |
 | ![](docs/day_chase.png) | ![](docs/garage.png) |
 
+## Rain mode
+
+Toggle **Weather: Rain** in the menu (any time of day; `--rain` on the command line).
+
+- **Wet road with real-time reflections:** a second camera renders the scene mirrored about the road
+  surface under the bike (half resolution on High, a third and every other frame on Medium). The road
+  shader blends it in by Fresnel: sharp in puddles, blurred and streaked vertically on soaked asphalt,
+  distorted by animated raindrop ripples. Puddles collect in the worn tyre ruts; asphalt darkens, paint
+  less so. Low graphics uses sky reflections only.
+- **Rain:** streak particles stretched along the rain's velocity *relative to you*, so they rake
+  towards you at speed; splashes on the road ahead; spray off the rear tyre.
+- **Visor drops (first person):** drops bead on the helmet visor, refract the view, and get blown
+  outwards/upwards by the airflow as you speed up (slide down when slow).
+- **Wet bike and rider:** every surface gets a glossier clear coat, plus an overlay pass of water
+  droplets placed in the bike's own space (they stick to it); a share of them run down and get blown
+  backwards faster with speed.
+- **Atmosphere:** overcast skies, soft overhead light without hard shadows, grey mist, headlight and car
+  lights on, rain and tyre-hiss audio, and ~22% less grip (braking, acceleration, cornering).
+
+![](docs/rain_cockpit.png)
+![](docs/rain_chase.png)
+
 ## Rider
 
 The rider is a Ready Player Me style avatar (`assets/rider/rider.glb`) posed procedurally every frame
@@ -151,6 +173,7 @@ Pass after `--` on the command line (read via `OS.get_cmdline_user_args()`):
 | `--menu --shot=PATH` (`--settings`) | screenshot the main menu (or settings) |
 | `--mode=0/1/2` | One-Way / Two-Way / Time Trial |
 | `--time=day/sunset/night/cloudy` | time of day |
+| `--rain` | rain mode |
 | `--sky=N` | force a specific sky panorama (see `scripts/sky_library.gd`) |
 | `--view=fp/chase` | camera |
 | `--seed=N` | road + traffic seed |

@@ -35,6 +35,7 @@ const UPGRADE_INFO := {
 # --- per-run configuration ---
 var mode: int = Mode.ONE_WAY
 var time_of_day: int = TimeOfDay.DAY
+var rain := false
 var run_seed: int = 0
 
 # --- dev flags (passed after `--` on the command line) ---
@@ -59,6 +60,8 @@ func _ready() -> void:
 	if has_flag("time"):
 		var t := String(flag("time", "day"))
 		time_of_day = maxi(0, ["day", "sunset", "night", "cloudy"].find(t))
+	if has_flag("rain"):
+		rain = str(flag("rain", "1")) not in ["0", "false"]
 	if has_flag("view"):
 		view = View.CHASE if flag("view", "fp") == "chase" else View.FIRST_PERSON
 	if has_flag("touch"):
@@ -156,6 +159,7 @@ func save() -> void:
 	c.set_value("progress", "upgrades", upgrades)
 	c.set_value("run", "mode", mode)
 	c.set_value("run", "time_of_day", time_of_day)
+	c.set_value("run", "rain", rain)
 	c.save(SAVE_PATH)
 
 func load_save() -> void:
@@ -177,6 +181,7 @@ func load_save() -> void:
 		upgrades[k] = int(up[k])
 	mode = c.get_value("run", "mode", mode)
 	time_of_day = c.get_value("run", "time_of_day", time_of_day)
+	rain = c.get_value("run", "rain", rain)
 
 func _start_pose_test() -> void:
 	print("[posetest] starting")

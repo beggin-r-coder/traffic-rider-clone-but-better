@@ -11,6 +11,8 @@ var engine_players: Array[AudioStreamPlayer] = []
 var wind: AudioStreamPlayer
 var roar: AudioStreamPlayer
 var scrape: AudioStreamPlayer
+var rain_player: AudioStreamPlayer
+var raining := false
 var oneshots: Array[AudioStreamPlayer] = []
 var _horn: AudioStreamWAV
 var _whoosh: AudioStreamWAV
@@ -52,6 +54,7 @@ func _ready() -> void:
 	wind = _loop_player(render_noise(2.0, 0.0, 1.0), "Wind")
 	roar = _loop_player(render_noise(1.5, 0.92, 0.6), "Master")
 	scrape = _loop_player(render_scrape(), "Master")
+	rain_player = _loop_player(render_noise(2.5, 0.35, 0.9), "Master")
 	_horn = render_horn()
 	_whoosh = render_whoosh()
 	_crash = render_crash()
@@ -129,6 +132,14 @@ func update(r: Rider, dt: float) -> void:
 	roar.volume_db = linear_to_db(clampf(sp / 60.0, 0.0, 1.0) * 0.35 + 0.001) - 6.0
 	roar.pitch_scale = 0.7 + sp / 90.0
 	scrape.volume_db = -80.0 if r.scrape < 0.3 else linear_to_db(r.scrape * 0.6)
+	if raining:
+		rain_player.volume_db = -11.0
+		rain_player.pitch_scale = 1.0
+		# Tyres hissing through water.
+		roar.volume_db = linear_to_db(clampf(sp / 50.0, 0.0, 1.0) * 0.7 + 0.001) - 4.0
+		roar.pitch_scale = 1.1 + sp / 70.0
+	else:
+		rain_player.volume_db = -80.0
 
 func _play(stream: AudioStreamWAV, vol_db: float, pitch: float = 1.0) -> void:
 	for o in oneshots:

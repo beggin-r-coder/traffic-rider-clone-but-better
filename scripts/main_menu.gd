@@ -190,7 +190,18 @@ func _build_ui() -> void:
 		b.pressed.connect(sel2)
 		times.add_child(b)
 		_time_btns.append(b)
-	main_panel.add_child(_spacer(6))
+	var rain_btn := _seg_button("")
+	rain_btn.custom_minimum_size = Vector2(546, 50)
+	var upd_rain := func():
+		rain_btn.text = "Weather: RAIN" if Game.rain else "Weather: Clear"
+		_style_seg(rain_btn, Game.rain)
+	upd_rain.call()
+	var tog_rain := func():
+		Game.rain = not Game.rain
+		Game.save()
+		upd_rain.call()
+	rain_btn.pressed.connect(tog_rain)
+	main_panel.add_child(rain_btn)
 	best_lbl = _label("", 22, Color(0.85, 0.88, 0.95))
 	main_panel.add_child(best_lbl)
 	main_panel.add_child(_spacer(6))

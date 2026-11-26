@@ -77,7 +77,7 @@ func _ready() -> void:
 	rider.set_view(Game.view)
 	rider.crashed.connect(_on_crash)
 	rider.gear_changed.connect(func(g): if audio: audio.on_shift(g))
-	if night:
+	if night or Game.rain:
 		headlight = SpotLight3D.new()
 		headlight.light_color = Color(1.0, 0.96, 0.88)
 		headlight.light_energy = 28.0
@@ -104,6 +104,8 @@ func _ready() -> void:
 	hud.name = "HUD"
 	add_child(hud)
 	hud.setup(self)
+	if Game.rain:
+		_setup_rain()
 	if Game.mode == Game.Mode.TIME_TRIAL:
 		time_left = 60.0
 	# --- dev flags ---
@@ -125,7 +127,29 @@ func _ready() -> void:
 	if Game.has_flag("nocountdown") or autopilot:
 		countdown = 0.6 if autopilot else 0.0
 	if autopilot:
-		print("[autotest] start mode=%s time=%s seed=%d view=%d sky=%s" % [Game.MODE_NAMES[Game.mode], Game.TIME_NAMES[Game.time_of_day], Game.run_seed, Game.view, str(sky_info)])
+		print("[autotest] start mode=%s time=%s rain=%s seed=%d view=%d sky=%s" % [Game.MODE_NAMES[Game.mode], Game.TIME_NAMES[Game.time_of_day], str(Game.rain), Game.run_seed, Game.view, str(sky_info.get("id", -1))])
+
+# ------------------------------------------------------------------ rain
+
+var rain: Rain
+
+func _setup_rain() -> void:
+	rain = Rain.new()
+	rain.name = "Rain"
+	add_child(rain)
+	rain.setup(rider, road, self)
+	rider.grip = 0.78
+	CarFactory.set_wet(true)
+	CarFactory.set_night(true)          # lights on in the rain
+	audio.raining = true
+	var rm: ShaderMaterial = road._mat_road
+	rm.set_shader_parameter("wetness", 1.0)
+	rm.set_shader_parameter("puddles", 1.0)
+	var rt := rain.reflection_texture()
+	rm.set_shader_parameter("has_reflection", rt != null)
+	if rt:
+		rm.set_shader_parameter("reflection_tex", rt)
+	rider.bike.set_wet.call_deferred(true)
 
 # ------------------------------------------------------------------ environment
 
@@ -150,7 +174,11 @@ func _build_environment() -> void:
 	var we := WorldEnvironment.new()
 	env = Environment.new()
 	# --- sky: a cloudy panorama picked for the time of day ---
-	var sky_id := int(Game.flag("sky", str(SkyLibrary.pick(tod, Game.run_seed))))
+	# Rain: overcast skies (night keeps its own).
+	var sky_tod := tod
+	if Game.rain and tod != Game.TimeOfDay.NIGHT:
+		sky_tod = Game.TimeOfDay.CLOUDY
+	var sky_id := int(Game.flag("sky", str(SkyLibrary.pick(sky_tod, Game.run_seed))))
 	var pano: Texture2D = load(SkyLibrary.path(sky_id))
 	var info := SkyLibrary.analyze(pano)
 	sky_info = info
@@ -216,6 +244,11 @@ func _build_environment() -> void:
 		_:
 			desired_az = deg_to_rad(-55.0)
 			exposure = 0.9
+	if Game.rain:
+		exposure *= 0.85 if tod != Game.TimeOfDay.NIGHT else 0.9
+		sun_energy *= 0.4
+		amb_energy *= 1.25
+		sky_mat.set_shader_parameter("sun_boost", 0.2)
 	var rot: float = desired_az - (float(info["sun_u"]) - 0.5) * TAU
 	sky_mat.set_shader_parameter("rotation", rot)
 	sky_mat.set_shader_parameter("exposure", exposure)
@@ -250,6 +283,25 @@ func _build_environment() -> void:
 			env.fog_depth_begin = 120.0
 			env.fog_depth_end = 1300.0
 	sky_mat.set_shader_parameter("ground_color", Color(hz.r * 0.35, hz.g * 0.38, hz.b * 0.3))
+	if Game.rain:
+		# Overcast downpour: no hard shadows, close grey mist, muted colours.
+		sun.shadow_enabled = false
+		var grey := (hz.r + hz.g + hz.b) / 3.0
+		env.fog_light_color = Color(grey, grey * 1.02, grey * 1.06).lerp(hz, 0.3) * 0.9
+		env.fog_depth_begin = 8.0
+		env.fog_depth_end = 320.0 if tod != Game.TimeOfDay.NIGHT else 260.0
+		env.fog_depth_curve = 1.25
+		env.adjustment_saturation = 0.88
+		env.adjustment_contrast = 1.12
+		env.glow_hdr_threshold = 0.95
+		env.glow_intensity = 0.8
+		env.tonemap_exposure = 1.2
+		env.ambient_light_energy = amb_energy * 1.3
+		# Overcast light comes from the whole sky: aim the light almost straight down, soft and neutral.
+		var night_r := tod == Game.TimeOfDay.NIGHT
+		sun.basis = Basis.looking_at(Vector3(0.15, -1.0, 0.25).normalized(), Vector3.FORWARD)
+		sun.light_energy = 0.25 if night_r else 1.0
+		sun.light_color = Color(0.86, 0.9, 1.0)
 	we.environment = env
 	add_child(we)
 	add_child(sun)
@@ -315,6 +367,9 @@ func _process(delta: float) -> void:
 	for i in steps:
 		_step(h)
 	rider.update_visuals(dt)
+	if rain:
+		rain.update(dt)
+		rider.bike.set_wet_speed(clampf(rider.v / 50.0, 0.0, 1.0))
 	_update_effects(dt)
 	hud.refresh(dt)
 	audio.update(rider, dt)
