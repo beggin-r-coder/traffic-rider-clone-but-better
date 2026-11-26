@@ -89,7 +89,7 @@ void fragment() {
 	float rough = arm.g * (1.0 - 0.18 * tracks) * (1.0 - 0.1 * drip);
 	rough = mix(rough, 0.55, marked);
 	ROUGHNESS = mix(rough, 0.12, wetness);
-	SPECULAR = 0.3;
+	SPECULAR = 0.18;
 	// Painted lines flatten the bumps a little.
 	NORMAL_MAP = mix(nrm, vec3(0.5, 0.5, 1.0), marked * 0.5);
 	NORMAL_MAP_DEPTH = normal_strength * (1.0 - wetness * 0.6);

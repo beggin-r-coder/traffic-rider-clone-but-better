@@ -191,7 +191,7 @@ func _build_environment() -> void:
 	var desired_az: float
 	var exposure := 1.0
 	var sun_energy := 1.5
-	var amb_energy := 0.85
+	var amb_energy := 1.05
 	var min_elev := deg_to_rad(12.0)
 	match tod:
 		Game.TimeOfDay.SUNSET:
@@ -199,7 +199,7 @@ func _build_environment() -> void:
 			sky_mat.set_shader_parameter("sun_boost", 0.6)
 			exposure = 0.92
 			sun_energy = 1.5
-			amb_energy = 0.8
+			amb_energy = 1.0
 			min_elev = deg_to_rad(6.0)
 		Game.TimeOfDay.NIGHT:
 			desired_az = deg_to_rad(25.0)
@@ -210,8 +210,8 @@ func _build_environment() -> void:
 			sky_mat.set_shader_parameter("sun_boost", 1.0)
 		Game.TimeOfDay.CLOUDY:
 			desired_az = deg_to_rad(40.0)
-			sun_energy = 0.7
-			amb_energy = 1.1
+			sun_energy = 0.95
+			amb_energy = 1.45
 			sun.shadow_opacity = 0.55
 		_:
 			desired_az = deg_to_rad(-55.0)

@@ -1,0 +1,108 @@
+{
+  "atlas_h": 4096,
+  "atlas_w": 2048,
+  "frame_w": 256,
+  "frames": 8,
+  "species": [
+    {
+      "height": 18.9251098632812,
+      "kind": "conifer",
+      "name": "fir_tree_01_a_LOD0",
+      "radius": 3.65891632080078,
+      "row_h": 512,
+      "row_y": 0,
+      "world_h": 19.6821142578125,
+      "world_w": 9.84105712890625
+    },
+    {
+      "height": 14.0552053451538,
+      "kind": "conifer",
+      "name": "fir_tree_01_b_LOD0",
+      "radius": 3.39173557281494,
+      "row_h": 512,
+      "row_y": 512,
+      "world_h": 14.61741355896,
+      "world_w": 7.30870677947998
+    },
+    {
+      "height": 14.5205821990967,
+      "kind": "conifer",
+      "name": "fir_tree_01_c_LOD0",
+      "radius": 3.53132595062256,
+      "row_h": 512,
+      "row_y": 1024,
+      "world_h": 15.1014054870605,
+      "world_w": 7.55070274353027
+    },
+    {
+      "height": 4.55674076080322,
+      "kind": "broadleaf",
+      "name": "tree_small_02_LOD0",
+      "radius": 2.40378719329834,
+      "row_h": 512,
+      "row_y": 1536,
+      "world_h": 9.99975472412109,
+      "world_w": 4.99987736206055
+    },
+    {
+      "height": 1.30073797702789,
+      "kind": "young_conifer",
+      "name": "fir_sapling_a",
+      "radius": 0.482242078781128,
+      "row_h": 512,
+      "row_y": 2048,
+      "world_h": 2.00612704772949,
+      "world_w": 1.00306352386475
+    },
+    {
+      "height": 1.29895746707916,
+      "kind": "young_conifer",
+      "name": "pine_sapling_small_a",
+      "radius": 0.441097211837769,
+      "row_h": 512,
+      "row_y": 2560,
+      "world_h": 1.83496440124512,
+      "world_w": 0.917482200622559
+    },
+    {
+      "height": 3.40660572052002,
+      "kind": "broadleaf_wide",
+      "name": "island_tree_02_LOD0",
+      "radius": 2.35633750915527,
+      "row_h": 256,
+      "row_y": 3072,
+      "world_h": 4.90118201904297,
+      "world_w": 4.90118201904297
+    },
+    {
+      "height": 2.3389196395874,
+      "kind": "bush_tree",
+      "name": "searsia_lucida_a_LOD0",
+      "radius": 1.10076651573181,
+      "row_h": 256,
+      "row_y": 3328,
+      "world_h": 2.4324764251709,
+      "world_w": 2.4324764251709
+    },
+    {
+      "height": 2.38151574134827,
+      "kind": "shrub",
+      "name": "shrub_02_c",
+      "radius": 1.42015399932861,
+      "row_h": 256,
+      "row_y": 3584,
+      "world_h": 2.95392031860352,
+      "world_w": 2.95392031860352
+    },
+    {
+      "height": 0.427694708108902,
+      "kind": "fern",
+      "name": "fern_02_b",
+      "radius": 0.554258546829224,
+      "row_h": 256,
+      "row_y": 3840,
+      "world_h": 1.15285777740479,
+      "world_w": 1.15285777740479
+    }
+  ]
+}

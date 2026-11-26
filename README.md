@@ -43,6 +43,20 @@ render layer, so it doesn't reflect itself). Low graphics falls back to sky-only
 
 ![](docs/bike_reflections.png)
 
+## Forest road
+
+The roadside is a dense forest built from Poly Haven plants (fir trees, young firs and pines, a
+broadleaf tree, island tree, searsia bush, shrubs and ferns). Those models are millions of triangles
+each, so they are baked offline into **impostors**: each plant is rendered from 8 directions into one
+2048x4096 colour + normal atlas (`assets/vegetation/`). In game every plant is a 2-triangle card that
+turns to face the camera, picks the nearest baked view, is lit through its normal map, sways a little
+in the wind, and casts shadows. A road chunk's whole forest (~130 plants: a fern/shrub band, then three
+staggered tree rows) is **one draw call**, with a dark forest-interior band behind the last row so no
+gaps show open land. Graphics quality scales the density (Low 55 %, Medium 85 %, High 100 %).
+
+Re-bake (needs the source glTFs from Poly Haven in a folder, and a real renderer, e.g. under xvfb):
+`godot --path . -- --bake-vegetation=/path/to/polyhaven_models`
+
 ## Garage
 
 Cash earned from runs buys **Engine**, **Brakes** and **Handling** upgrades (5 levels each), and the
@@ -107,6 +121,7 @@ Pass after `--` on the command line (read via `OS.get_cmdline_user_args()`):
 | `--quality=0/1/2` | graphics quality |
 | `--photo` | close 3/4 camera riding alongside the bike (for screenshots) |
 | `--audiotest` | render every procedural sound offline, check samples are finite, print peak/RMS |
+| `--bake-vegetation=DIR` | bake the roadside plant impostor atlas from Poly Haven glTFs in DIR |
 | `--bake-audio` | re-bake the engine loops into `assets/audio/` |
 
 Examples:
@@ -134,5 +149,7 @@ xvfb-run -a -s "-screen 0 1280x720x24" godot --path . --rendering-method mobile 
   (`assets/bike/license.txt`).
 - Road surface: "Asphalt 02" by Rob Tuytel, [Poly Haven](https://polyhaven.com/a/asphalt_02), CC0
   (4K colour, normal and AO/roughness maps in `assets/textures/asphalt_02/`).
+- Vegetation: fir_tree_01, fir_sapling, pine_sapling_small, tree_small_02, island_tree_02,
+  searsia_lucida, shrub_02, fern_02 from [Poly Haven](https://polyhaven.com/models), CC0 (baked to impostors).
 - Skies: "Cloudy Skyboxes" by Screaming Brain Studios, CC0 (`assets/skies/`).
 - Everything else (lane markings, scenery, cars, audio, UI) is procedural.

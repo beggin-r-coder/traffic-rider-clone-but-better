@@ -37,10 +37,6 @@ var _mat_post: StandardMaterial3D
 var _mat_pole: StandardMaterial3D
 var _mat_lamp: StandardMaterial3D
 var _mat_glow: StandardMaterial3D
-var _mesh_pine: Mesh
-var _mesh_tree: Mesh
-var _mesh_bush: Mesh
-var _mesh_rock: Mesh
 var _mesh_pole: Mesh
 var _mesh_post: Mesh
 var _mesh_glow: Mesh
@@ -208,9 +204,11 @@ func _build_chunk(k: int) -> Node3D:
 	node.add_child(_strip_mesh(ss, road_d, _mat_road, 0.0, true))
 
 	# --- terrain both sides ---
-	var tl := [-(RAIL_D + 0.4), -(RAIL_D + 2.0), -(RAIL_D + 4.5), -(RAIL_D + 8.0), -24.0, -40.0, -65.0, -100.0, -150.0, -205.0, -TERRAIN_W]
-	tl.reverse()
-	var tr := [RAIL_D + 0.4, RAIL_D + 2.0, RAIL_D + 4.5, RAIL_D + 8.0, 24.0, 40.0, 65.0, 100.0, 150.0, 205.0, TERRAIN_W]
+	# Terrain only needs to reach just past the forest wall.
+	var tr := [RAIL_D + 0.4, RAIL_D + 2.0, RAIL_D + 4.5, RAIL_D + 9.0, RAIL_D + 16.0, RAIL_D + 24.0, RAIL_D + 33.0, RAIL_D + 45.0]
+	var tl := []
+	for x in tr:
+		tl.push_front(-x)
 	var tss := PackedFloat32Array()
 	for i in 5 + 1:
 		tss.append(s0 + CHUNK_LEN * i / 5)
@@ -271,40 +269,9 @@ func _build_chunk(k: int) -> Node3D:
 		lbl.double_sided = false
 		sign.add_child(lbl)
 
-	# --- vegetation ---
-	var pines: Array[Transform3D] = []
-	var trees: Array[Transform3D] = []
-	var bushes: Array[Transform3D] = []
-	var rocks: Array[Transform3D] = []
-	var n_trees := 26 + crng.randi() % 14
-	for i in n_trees:
-		var s := crng.randf_range(s0, s1)
-		var side := -1.0 if crng.randf() < 0.5 else 1.0
-		var dist := RAIL_D + 6.0 + pow(crng.randf(), 1.6) * 150.0
-		var d := side * dist
-		var h := terrain_offset(s, d)
-		var t := Transform3D(Basis(Vector3.UP, crng.randf() * TAU), point(s, d, h - 0.2))
-		var sc := crng.randf_range(0.75, 1.5)
-		t.basis = t.basis.scaled(Vector3(sc, sc * crng.randf_range(0.85, 1.25), sc))
-		if crng.randf() < 0.55:
-			pines.append(t)
-		else:
-			trees.append(t)
-	for i in 10:
-		var s := crng.randf_range(s0, s1)
-		var side := -1.0 if crng.randf() < 0.5 else 1.0
-		var d := side * (RAIL_D + crng.randf_range(2.5, 30.0))
-		var t := Transform3D(Basis(Vector3.UP, crng.randf() * TAU), point(s, d, terrain_offset(s, d) - 0.1))
-		var sc := crng.randf_range(0.6, 1.4)
-		t.basis = t.basis.scaled(Vector3(sc, sc, sc))
-		if crng.randf() < 0.8:
-			bushes.append(t)
-		else:
-			rocks.append(t)
-	node.add_child(_multimesh(_mesh_pine, pines, null, true))
-	node.add_child(_multimesh(_mesh_tree, trees, null, true))
-	node.add_child(_multimesh(_mesh_bush, bushes, null, false))
-	node.add_child(_multimesh(_mesh_rock, rocks, null, false))
+	# --- dense roadside forest (baked Poly Haven impostors, one draw call per chunk) ---
+	var density: float = [0.55, 0.85, 1.0][clampi(Game.quality, 0, 2)]
+	node.add_child(Vegetation.build_chunk(self, s0, s1, crng, density, Game.quality > 0))
 	return node
 
 func _multimesh(mesh: Mesh, xforms: Array[Transform3D], mat: Material, shadows: bool) -> MultiMeshInstance3D:
@@ -358,7 +325,10 @@ func _terrain_mesh(ss: PackedFloat32Array, left: Array, right: Array) -> ArrayMe
 				var c := Color(0.22, 0.42, 0.12).lerp(Color(0.36, 0.46, 0.16), 0.5 + 0.5 * nv)
 				if absf(d) < RAIL_D + 1.0:
 					c = Color(0.42, 0.40, 0.33)
-				c = c.lerp(Color(0.2, 0.34, 0.14), e * 0.6)
+				# Shaded forest floor (moss, needles) under the trees.
+				var forest := clampf((absf(d) - RAIL_D - 2.0) / 5.0, 0.0, 1.0)
+				c = c.lerp(Color(0.09, 0.14, 0.05).lerp(Color(0.15, 0.12, 0.07), 0.5 + 0.5 * nv), forest)
+				c = c.lerp(c * 0.85, e * 0.6)
 				row.append([p, c])
 			grid.append(row)
 		for i in ss.size() - 1:
@@ -475,10 +445,6 @@ func _mat(c: Color, rough: float = 0.85, metal: float = 0.0) -> StandardMaterial
 	return m
 
 func _build_props() -> void:
-	_mesh_pine = Props.pine(_mat(Color(0.16, 0.30, 0.15)), _mat(Color(0.30, 0.22, 0.15)))
-	_mesh_tree = Props.broadleaf(_mat(Color(0.26, 0.42, 0.16)), _mat(Color(0.33, 0.25, 0.17)))
-	_mesh_bush = Props.bush(_mat(Color(0.24, 0.36, 0.14)))
-	_mesh_rock = Props.rock(_mat(Color(0.5, 0.49, 0.46)))
 	_mesh_pole = Props.street_light(_mat_pole, _mat_lamp)
 	_mesh_post = Props.box(Vector3(0.1, 0.8, 0.1), Vector3(0, 0.4, 0))
 	_mesh_sign = Props.sign(_mat(Color(0.05, 0.38, 0.18), 0.6), _mat_pole)

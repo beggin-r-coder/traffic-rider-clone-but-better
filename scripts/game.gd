@@ -72,6 +72,11 @@ func _ready() -> void:
 	run_seed = int(flag("seed", str(randi() % 100000)))
 	if has_flag("fps"):
 		Engine.max_fps = int(flag("fps", "60"))
+	if has_flag("bake-vegetation"):
+		var baker = load("res://scripts/tools/impostor_baker.gd").new()
+		add_child(baker)
+		baker.run.call_deferred(String(flag("bake-vegetation")))
+		return
 	if has_flag("dyntest"):
 		_dyn_test.call_deferred()
 		return
