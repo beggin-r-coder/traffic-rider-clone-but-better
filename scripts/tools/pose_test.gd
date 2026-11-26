@@ -122,6 +122,9 @@ func run(dir: String) -> void:
 	}
 	var views := {
 		"side": [Vector3(3.2, 1.1, -0.1), Vector3(0, 0.8, -0.1), 40.0],
+		"sideclose": [Vector3(2.2, 1.15, 0.0), Vector3(0, 0.95, -0.05), 32.0],
+		"rear34": [Vector3(1.6, 1.6, 2.2), Vector3(0, 1.0, 0.0), 36.0],
+		"front": [Vector3(0.0, 1.2, -3.0), Vector3(0, 1.0, 0.0), 30.0],
 		"front34": [Vector3(1.8, 1.5, -2.6), Vector3(0, 0.9, -0.2), 40.0],
 		"hand_r": [Vector3(0.75, 1.15, -0.75), Vector3(0.29, 0.94, -0.42), 30.0],
 		"hand_top": [Vector3(0.29, 1.45, -0.42), Vector3(0.29, 0.94, -0.42), 30.0],
@@ -152,12 +155,13 @@ func run(dir: String) -> void:
 			get_viewport().get_texture().get_image().save_png("%s/%s_%s.png" % [dir, st, vn])
 		# first person
 		rider.set_first_person(true)
-		var eye := bike.lean_node.global_transform * Vector3(0, 1.38, 0.3)
-		for pitch in [-11.0, -15.0]:
+		for variant in [[rider.fp_camera_position(), -11.0, "a"]]:
+			var eye: Vector3 = bike.lean_node.global_transform * variant[0]
 			cam.fov = 76.0
-			cam.global_transform = Transform3D(bike.lean_node.global_transform.basis * Basis(Vector3.RIGHT, deg_to_rad(pitch)), eye)
+			cam.global_transform = Transform3D(bike.lean_node.global_transform.basis * Basis(Vector3.RIGHT, deg_to_rad(variant[1])), eye)
+			var pitch: float = variant[1]
 			await RenderingServer.frame_post_draw
 			await RenderingServer.frame_post_draw
-			get_viewport().get_texture().get_image().save_png("%s/%s_fp%d.png" % [dir, st, int(-pitch)])
+			get_viewport().get_texture().get_image().save_png("%s/%s_fp_%s.png" % [dir, st, variant[2]])
 	print("[posetest] done")
 	get_tree().quit()

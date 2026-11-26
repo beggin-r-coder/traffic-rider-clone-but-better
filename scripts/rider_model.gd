@@ -18,7 +18,7 @@ const GRIP_OUT := Vector3(0.348, 0.921, -0.363)    # right grip rubber, outer en
 const LEVER_IN := Vector3(0.255, 0.948, -0.490)    # brake lever, pivot side
 const LEVER_OUT := Vector3(0.368, 0.904, -0.471)   # brake lever, tip
 const PEG := Vector3(0.245, 0.455, 0.340)          # right footpeg (ball of the foot)
-const SEAT := Vector3(0.0, 0.925, 0.285)           # seat surface under the pelvis
+const SEAT := Vector3(0.0, 0.925, 0.27)           # seat surface under the pelvis
 const GRIP_RADIUS := 0.02                          # grip rubber + glove
 
 var skel: Skeleton3D
@@ -89,12 +89,22 @@ func set_first_person(fp: bool) -> void:
 				if not _fp_mats.has(key):
 					var c: BaseMaterial3D = src.duplicate()
 					c.distance_fade_mode = BaseMaterial3D.DISTANCE_FADE_PIXEL_DITHER
-					c.distance_fade_min_distance = 0.56
-					c.distance_fade_max_distance = 0.6
+					c.distance_fade_min_distance = 0.45
+					c.distance_fade_max_distance = 0.48
 					_fp_mats[key] = c
 				mi.set_surface_override_material(si, _fp_mats[key])
 			else:
 				mi.set_surface_override_material(si, null)
+
+## Midpoint between the shoulder joints (bike-leaning-frame space).
+func shoulder_mid() -> Vector3:
+	var m := (_g[_b["LeftArm"]].origin + _g[_b["RightArm"]].origin) * 0.5
+	return Vector3(-m.x, m.y, -m.z)
+
+## First-person camera mount: just above and behind the shoulders, fixed relative to the torso so
+## the near-camera fade always cuts the body in the same place (only forearms + gloves stay visible).
+func fp_camera_position() -> Vector3:
+	return shoulder_mid() + Vector3(0, 0.045, 0.40)
 
 ## Eye position (bike-leaning-frame space).
 func eye_position() -> Vector3:
@@ -198,20 +208,20 @@ func update_pose(dt: float) -> void:
 	# --- pelvis on the seat, tilted forward; hang off the inside in corners ---
 	var hip_target := _sk(SEAT) + up * 0.105 + Vector3(-_hang * 0.11, -absf(_hang) * 0.015, 0)
 	_move(hips, hip_target - _g[hips].origin)
-	_rot(hips, Vector3.RIGHT, deg_to_rad(36.0 + 6.0 * _tuck), _g[hips].origin)
+	_rot(hips, Vector3.RIGHT, deg_to_rad(42.0 + 8.0 * _tuck), _g[hips].origin)
 	_rot(hips, fwd, deg_to_rad(_hang * 10.0), _g[hips].origin)
 
 	# --- spine curve: more tuck at speed ---
-	for pair in [["Spine", 15.0, 5.0], ["Spine1", 16.0, 6.0], ["Spine2", 13.0, 5.0]]:
+	for pair in [["Spine", 5.0, 3.0], ["Spine1", 7.0, 3.0], ["Spine2", 6.0, 3.0]]:
 		var bi := _bi(pair[0])
 		_rot(bi, Vector3.RIGHT, deg_to_rad(pair[1] + pair[2] * _tuck), _g[bi].origin)
 	# Lean the upper body a little into the turn.
 	_rot(_bi("Spine1"), fwd, deg_to_rad(_hang * 9.0), _g[_bi("Spine1")].origin)
 
 	# --- head up, eyes level, looking a touch into the turn ---
-	var torso_pitch := 36.0 + 6.0 * _tuck + 44.0 + 16.0 * _tuck
-	_rot(_bi("Neck"), Vector3.RIGHT, deg_to_rad(-torso_pitch * 0.42), _g[_bi("Neck")].origin)
-	_rot(_bi("Head"), Vector3.RIGHT, deg_to_rad(-torso_pitch * 0.42), _g[_bi("Head")].origin)
+	var torso_pitch := 42.0 + 8.0 * _tuck + 18.0 + 9.0 * _tuck
+	_rot(_bi("Neck"), Vector3.RIGHT, deg_to_rad(-torso_pitch * 0.5), _g[_bi("Neck")].origin)
+	_rot(_bi("Head"), Vector3.RIGHT, deg_to_rad(-torso_pitch * 0.38), _g[_bi("Head")].origin)
 	_rot(_bi("Head"), up, deg_to_rad(-steer * 8.0 - _hang * 6.0), _g[_bi("Head")].origin)
 	_rot(_bi("Head"), fwd, deg_to_rad(-_hang * 12.0), _g[_bi("Head")].origin)
 
@@ -266,8 +276,8 @@ func _pose_arm(side: float) -> void:
 		_rot(shoulder, ax, arm_dir.angle_to(to_grip) * 0.22, sh_o)
 	# Elbows bent outwards and down.
 	var out := Vector3(-side, 0, 0)               # rider's right side = -X in skeleton space
-	var pole := (out * 0.45 + Vector3.DOWN * 0.85 + Vector3(0, 0, -0.2)).normalized()
-	_two_bone(arm, fore, hand, wrist_target, _g[arm].origin + pole)
+	var pole := (out * 0.55 + Vector3.DOWN * 0.75 + Vector3(0, 0, -0.35)).normalized()
+	_two_bone(arm, fore, hand, wrist_target, pole)
 	# Lock the wrist exactly on target and orient the hand along the grip.
 	_move(hand, wrist_target - _g[hand].origin)
 	var cur_f := _g[_bi(pre + "HandMiddle1")].origin - _g[hand].origin
@@ -363,8 +373,8 @@ func _pose_leg(side: float) -> void:
 	# Ball of the foot on the peg; ankle above and behind it.
 	var ankle := peg + Vector3.UP * 0.085 + Vector3(0, 0, -0.07)
 	var out := Vector3(-side, 0, 0)
-	var pole := (Vector3(0, 0, 1) * 0.9 + out * (0.25 + inside * absf(_hang) * 0.9) + Vector3.UP * 0.2).normalized()
-	_two_bone(up_leg, leg, foot, ankle, _g[up_leg].origin + pole)
+	var pole := (Vector3(0, 0, 1) * 0.95 + out * (-0.08 + inside * absf(_hang) * 0.9) + Vector3.UP * 0.25).normalized()
+	_two_bone(up_leg, leg, foot, ankle, pole)
 	_move(foot, ankle - _g[foot].origin)
 	var cur_f := _g[toe].origin - _g[foot].origin
 	var cur_s := Vector3(-1, 0, 0)

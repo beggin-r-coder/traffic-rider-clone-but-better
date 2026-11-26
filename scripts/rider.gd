@@ -367,6 +367,8 @@ func _update_fp_camera(t: Transform3D, dt: float) -> void:
 	target_head.y -= clampf((v - 40.0) / 40.0, 0.0, 1.0) * 0.03
 	target_head.z -= clampf((v - 40.0) / 40.0, 0.0, 1.0) * 0.04
 
+	if model:
+		target_head = model.fp_camera_position()
 	_head_offset = _head_offset.lerp(target_head, 1.0 - exp(-8.0 * dt))
 	var lean_b := Basis(Vector3.BACK, -lean)
 	var origin := t * (Basis(Vector3.BACK, -lean) * _head_offset)
