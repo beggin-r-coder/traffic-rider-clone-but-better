@@ -18,6 +18,7 @@ const TERRAIN_W := 260.0
 
 var two_way := false
 var night := false
+var lamps_on := false        # street lights lit (night or rain)
 var rng := RandomNumberGenerator.new()
 var noise := FastNoiseLite.new()
 
@@ -37,6 +38,8 @@ var _mat_post: StandardMaterial3D
 var _mat_pole: StandardMaterial3D
 var _mat_lamp: StandardMaterial3D
 var _mat_glow: StandardMaterial3D
+var _mat_flare: ShaderMaterial
+var _flare_quad: QuadMesh
 var _mesh_pole: Mesh
 var _mesh_post: Mesh
 var _mesh_glow: Mesh
@@ -232,24 +235,50 @@ func _build_chunk(k: int) -> Node3D:
 		s_post += 4.0
 	node.add_child(_multimesh(_mesh_post, posts, _mat_post, false))
 
-	# --- street lights every 50 m, alternating sides ---
+	# --- street lights every 40 m, alternating sides (lit at night and in the rain) ---
 	var lamps: Array[Transform3D] = []
 	var glows: Array[Transform3D] = []
-	var s_lamp: float = ceil(s0 / 50.0) * 50.0
+	var flares: Array[Transform3D] = []
+	var flare_cols: Array[Color] = []
+	var s_lamp: float = ceil(s0 / 40.0) * 40.0
 	while s_lamp < s1:
-		var side := 1.0 if int(s_lamp / 50.0) % 2 == 0 else -1.0
+		var idx := int(s_lamp / 40.0)
+		var side := 1.0 if idx % 2 == 0 else -1.0
 		var t := xform(s_lamp, side * (RAIL_D + 0.7))
 		if side < 0:
 			t.basis = t.basis.rotated(t.basis.y, PI)
 		lamps.append(t)
-		if night:
+		if lamps_on:
 			var g := xform(s_lamp, side * (RAIL_D - 2.6), 0.03)
 			glows.append(g)
-		s_lamp += 50.0
+			flares.append(Transform3D(Basis(), t * Vector3(-2.25, 8.22, 0)))
+			# Mostly warm sodium, every third one a cool LED: the orange/cyan look of wet streets.
+			flare_cols.append(Color(0.62, 0.86, 1.0) if idx % 3 == 0 else Color(1.0, 0.56, 0.2))
+		s_lamp += 40.0
 	if not lamps.is_empty():
 		node.add_child(_multimesh(_mesh_pole, lamps, null, true))
 	if not glows.is_empty():
 		node.add_child(_multimesh(_mesh_glow, glows, _mat_glow, false))
+	if not flares.is_empty():
+		var mm := MultiMesh.new()
+		mm.transform_format = MultiMesh.TRANSFORM_3D
+		mm.use_custom_data = true
+		mm.mesh = _flare_quad
+		mm.instance_count = flares.size()
+		for i in flares.size():
+			mm.set_instance_transform(i, flares[i])
+			mm.set_instance_custom_data(i, flare_cols[i])
+		var fmi := MultiMeshInstance3D.new()
+		fmi.multimesh = mm
+		fmi.material_override = _mat_flare
+		fmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		var lo: Vector3 = flares[0].origin
+		var hi: Vector3 = lo
+		for f in flares:
+			lo = lo.min(f.origin)
+			hi = hi.max(f.origin)
+		fmi.custom_aabb = AABB(lo - Vector3(6, 6, 6), (hi - lo) + Vector3(12, 12, 12))
+		node.add_child(fmi)
 
 	# --- distance sign every 1 km ---
 	if int(s0) % 1000 == 0 and s0 > 0:
@@ -413,7 +442,7 @@ func _build_materials() -> void:
 	_mat_pole.roughness = 0.6
 	_mat_lamp = StandardMaterial3D.new()
 	_mat_lamp.albedo_color = Color(1, 0.9, 0.7)
-	_mat_lamp.emission_enabled = night
+	_mat_lamp.emission_enabled = lamps_on
 	_mat_lamp.emission = Color(1.0, 0.8, 0.5)
 	_mat_lamp.emission_energy_multiplier = 12.0
 	_mat_glow = StandardMaterial3D.new()
@@ -423,6 +452,15 @@ func _build_materials() -> void:
 	_mat_glow.albedo_texture = _radial_tex()
 	_mat_glow.albedo_color = Color(1.0, 0.7, 0.38, 0.85)
 	_mat_glow.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
+	_mat_flare = ShaderMaterial.new()
+	_mat_flare.shader = preload("res://shaders/light_flare.gdshader")
+	_mat_flare.set_shader_parameter("color", Color(1, 1, 1))
+	_mat_flare.set_shader_parameter("intensity", 2.6)
+	_mat_flare.set_shader_parameter("size", 1.8)
+	_mat_flare.set_shader_parameter("halo", 0.28)
+	_mat_flare.set_shader_parameter("per_instance", true)
+	_flare_quad = QuadMesh.new()
+	_flare_quad.size = Vector2(1, 1)
 
 func _radial_tex() -> GradientTexture2D:
 	var g := Gradient.new()

@@ -29,12 +29,19 @@ class Car:
 	var tracking := false
 	var horn_cd := 0.0
 	var glow: Node3D
+	var tail_flares: Array[MeshInstance3D] = []
+	var braking_shown := false
 
 var road: Road
 var cars: Array[Car] = []
 var rng := RandomNumberGenerator.new()
 var two_way := false
 var night := false
+var lights_on := false
+var _flare_head: ShaderMaterial
+var _flare_tail: ShaderMaterial
+var _flare_brake: ShaderMaterial
+var _flare_quad: QuadMesh
 var spawn_enabled := true
 var density_mult := 1.0
 var _spawn_cd := 0.0
@@ -146,6 +153,8 @@ func _spawn(kind: String, s: float, d: float, dir: int, player_s: float = 0.0) -
 		paint = CarFactory.paint_mats[[0, 4, 7, 8, 12][rng.randi() % 5]]
 	c.mesh.set_surface_override_material(0, paint)
 	c.node.add_child(c.mesh)
+	if lights_on:
+		_add_light_flares(c, kind)
 	if night and _glow_mesh:
 		var gl := MeshInstance3D.new()
 		gl.mesh = _glow_mesh
@@ -158,6 +167,41 @@ func _spawn(kind: String, s: float, d: float, dir: int, player_s: float = 0.0) -
 	cars.append(c)
 	_place(c)
 	return c
+
+func _flare_mat(col: Color, inten: float, size: float, halo: float) -> ShaderMaterial:
+	var m := ShaderMaterial.new()
+	m.shader = preload("res://shaders/light_flare.gdshader")
+	m.set_shader_parameter("color", col)
+	m.set_shader_parameter("intensity", inten)
+	m.set_shader_parameter("size", size)
+	m.set_shader_parameter("halo", halo)
+	return m
+
+func _add_light_flares(c: Car, kind: String) -> void:
+	if _flare_quad == null:
+		_flare_quad = QuadMesh.new()
+		_flare_quad.size = Vector2(1, 1)
+		_flare_head = _flare_mat(Color(1.0, 0.93, 0.8), 2.0, 0.5, 0.22)
+		_flare_tail = _flare_mat(Color(1.0, 0.08, 0.04), 1.2, 0.32, 0.2)
+		_flare_brake = _flare_mat(Color(1.0, 0.07, 0.03), 2.6, 0.48, 0.3)
+	var truck := kind == "truck"
+	var hx := c.width * 0.5 - (0.35 if truck else 0.28)
+	var hy := 0.85 if truck else 0.7
+	var ty := 0.95 if truck else 0.82
+	for side: float in [-1.0, 1.0]:
+		var h := MeshInstance3D.new()
+		h.mesh = _flare_quad
+		h.material_override = _flare_head
+		h.position = Vector3(side * hx, hy, -c.length * 0.5 - 0.05)
+		h.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		c.node.add_child(h)
+		var t := MeshInstance3D.new()
+		t.mesh = _flare_quad
+		t.material_override = _flare_tail
+		t.position = Vector3(side * (c.width * 0.5 - 0.2), ty, c.length * 0.5 + 0.05)
+		t.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		c.node.add_child(t)
+		c.tail_flares.append(t)
 
 func _leader_gap(c: Car, player_s: float, player_d: float, player_v: float) -> Array:
 	# Returns [gap, leader_speed] for the nearest vehicle ahead in c's lane.
@@ -246,6 +290,10 @@ func _place(c: Car) -> void:
 	c.node.transform = t
 	var tail_mat := CarFactory.mat_tail_brake if c.braking else CarFactory.mat_tail
 	c.mesh.set_surface_override_material(c.tail_surface, tail_mat)
+	if c.braking != c.braking_shown and not c.tail_flares.is_empty():
+		c.braking_shown = c.braking
+		for f in c.tail_flares:
+			f.material_override = _flare_brake if c.braking else _flare_tail
 	# Indicators: flash the amber surface via visibility trick (cheap): scale emission on a per-car basis is
 	# costly, so blink by toggling a tiny override.
 	if c.blink != 0:

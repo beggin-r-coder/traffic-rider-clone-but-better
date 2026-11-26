@@ -57,11 +57,13 @@ func _ready() -> void:
 	road = Road.new()
 	road.name = "Road"
 	add_child(road)
+	road.lamps_on = night or Game.rain
 	road.setup(Game.run_seed, two_way, night)
 	traffic = Traffic.new()
 	traffic.name = "Traffic"
 	add_child(traffic)
 	traffic.setup(road, Game.run_seed, two_way, night)
+	traffic.lights_on = night or Game.rain
 	traffic.near_miss.connect(_on_near_miss)
 	rider = Rider.new()
 	rider.name = "Rider"
@@ -147,6 +149,7 @@ func _setup_rain() -> void:
 	rm.set_shader_parameter("puddles", 1.0)
 	var rt := rain.reflection_texture()
 	rm.set_shader_parameter("has_reflection", rt != null)
+	rm.set_shader_parameter("streak_taps", 10 if Game.quality >= 2 else 6)
 	if rt:
 		rm.set_shader_parameter("reflection_tex", rt)
 	rider.bike.set_wet.call_deferred(true)
@@ -245,7 +248,7 @@ func _build_environment() -> void:
 			desired_az = deg_to_rad(-55.0)
 			exposure = 0.9
 	if Game.rain:
-		exposure *= 0.85 if tod != Game.TimeOfDay.NIGHT else 0.9
+		exposure *= 0.85 if tod != Game.TimeOfDay.NIGHT else 0.45
 		sun_energy *= 0.4
 		amb_energy *= 1.25
 		sky_mat.set_shader_parameter("sun_boost", 0.2)
@@ -293,8 +296,14 @@ func _build_environment() -> void:
 		env.fog_depth_curve = 1.25
 		env.adjustment_saturation = 0.88
 		env.adjustment_contrast = 1.12
-		env.glow_hdr_threshold = 0.95
-		env.glow_intensity = 0.8
+		# Wide, soft bloom so lights glow through the wet air.
+		env.glow_enabled = Game.quality > 0
+		env.glow_hdr_threshold = 0.8
+		env.glow_intensity = 0.9
+		env.glow_bloom = 0.12
+		env.glow_blend_mode = Environment.GLOW_BLEND_MODE_SOFTLIGHT if false else Environment.GLOW_BLEND_MODE_ADDITIVE
+		for lvl in 7:
+			env.set_glow_level(lvl, [0.0, 0.6, 0.8, 1.0, 1.0, 0.8, 0.5][lvl])
 		env.tonemap_exposure = 1.2
 		env.ambient_light_energy = amb_energy * 1.3
 		# Overcast light comes from the whole sky: aim the light almost straight down, soft and neutral.
@@ -579,7 +588,7 @@ func _autopilot() -> void:
 	rider.steer = clampf(err * 0.55, -1.0, 1.0)
 	var gap_here := traffic.gap_ahead(rider.s, rider.d, 0.7)
 	var closing_here := traffic.closing_speed_ahead(rider.s, rider.d, 0.7, rider.v)
-	var need := closing_here * closing_here / 14.0 + closing_here * 0.6 + 8.0
+	var need := closing_here * closing_here / (14.0 * rider.grip) + closing_here * 0.6 + 8.0
 	var limit := 58.0
 	# Slow for tight bends.
 	var k := absf(road.curvature_at(rider.s + rider.v * 1.5))

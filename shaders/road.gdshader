@@ -17,6 +17,7 @@ uniform float puddles = 0.0;
 uniform sampler2D reflection_tex : source_color, filter_linear, repeat_disable;
 uniform bool has_reflection = false;
 uniform float rain_rate = 1.0;
+uniform int streak_taps = 10;
 
 // Rain ripples: expanding rings in a grid of cells (each cell a drop impact on a random timer).
 vec2 ripples(vec2 p, float t) {
@@ -137,16 +138,26 @@ void fragment() {
 			vec2 dist = rip * 0.012 + (nrm.xy - 0.5) * 0.02 * (1.0 - pud);
 			ruv += dist;
 			vec3 refl = texture(reflection_tex, ruv).rgb;
-			float blur = (1.0 - pud) * 0.018;
-			vec3 refl_b = (texture(reflection_tex, ruv + vec2(0.0, blur)).rgb +
-					texture(reflection_tex, ruv - vec2(0.0, blur)).rgb +
-					texture(reflection_tex, ruv + vec2(0.0, blur * 2.2)).rgb +
-					texture(reflection_tex, ruv + vec2(blur * 0.3, -blur * 2.2)).rgb) * 0.25;
-			refl = mix(refl_b, refl, pud);
 			float ndv = clamp(dot(NORMAL, VIEW), 0.0, 1.0);
+			// Light streaks: wet asphalt smears each reflection along the view direction (straight
+			// down the screen, towards you), longer at grazing angles; puddles stay sharper.
+			float slen = mix(0.08, 0.42, pow(1.0 - ndv, 1.2)) * mix(1.0, 0.6, pud);
+			vec3 acc = vec3(0.0);
+			float wsum = 0.0;
+			for (int i = 0; i < streak_taps; i++) {
+				float t = float(i) / float(max(streak_taps - 1, 1));
+				vec2 o = vec2(rip.x * 0.012 * t + (nrm.x - 0.5) * 0.004, -t * slen);
+				float w = 1.0 - t * 0.45;
+				acc += texture(reflection_tex, ruv + o).rgb * w;
+				wsum += w;
+			}
+			vec3 streak = acc / wsum;
+			vec3 base = mix(streak, refl, pud * 0.35);
+			// Fake HDR: bright light sources punch through as glowing streaks (and feed the bloom).
+			vec3 hot = max(streak - vec3(0.3), vec3(0.0)) * 3.6 + max(refl - vec3(0.7), vec3(0.0)) * 0.8 * pud;
 			float fres = 0.04 + 0.96 * pow(1.0 - ndv, 5.0);
 			float k = mix(0.35, 1.0, pud) * wetness * mix(fres, 1.0, 0.18 + 0.25 * pud);
-			EMISSION = refl * k;
+			EMISSION = base * k + hot * wetness * 0.85;
 			col *= 1.0 - k * 0.6;
 			spec *= 0.3;   // the planar reflection replaces most of the sky specular
 		}

@@ -50,11 +50,16 @@ Toggle **Weather: Rain** in the menu (any time of day; `--rain` on the command l
 - **Wet bike and rider:** every surface gets a glossier clear coat, plus an overlay pass of water
   droplets placed in the bike's own space (they stick to it); a share of them run down and get blown
   backwards faster with speed.
+- **Lights in the rain:** street lights switch on (warm sodium with some cool LED ones), every lamp and
+  every car head/tail light gets a glowing halo, and brake lights flare. These are in the reflection too,
+  so on the wet road each light becomes a long vertical streak (multi-tap smear towards the viewer,
+  longer at grazing angles, with a fake-HDR boost so bright lights glow and bloom).
 - **Atmosphere:** overcast skies, soft overhead light without hard shadows, grey mist, headlight and car
   lights on, rain and tyre-hiss audio, and ~22% less grip (braking, acceleration, cornering).
 
 ![](docs/rain_cockpit.png)
 ![](docs/rain_chase.png)
+![](docs/rain_night.png)
 
 ## Rider
 
