@@ -477,6 +477,7 @@ func set_wet(on: bool) -> void:
 		return
 	wet_material = ShaderMaterial.new()
 	wet_material.shader = preload("res://shaders/wet_drops.gdshader")
+	_build_body_sims()
 	wet_material.render_priority = 1
 	var all: Array[MeshInstance3D] = []
 	_collect(self, all)
@@ -514,9 +515,66 @@ func set_wet(on: bool) -> void:
 				if i >= 0:
 					_paint_mats[i] = sm
 
+# Simulated drops on the bodywork: one sim for the sides (bike z/y plane), one for the top
+# surfaces (x/z plane). 1 px ~ 2.3 mm.
+const SIDE_DOMAIN := Rect2(-1.2, 0.0, 2.4, 1.6)     # z range, y range (metres)
+const TOP_DOMAIN := Rect2(-0.6, -1.2, 1.2, 2.4)     # x range, z range
+var side_sim: DropSim
+var top_sim: DropSim
+var _body_frame := 0
+
+func _build_body_sims() -> void:
+	if Game.quality <= 0:
+		return
+	var a: Array = DropSim.create(Vector2i(1024, 680))
+	add_child(a[0])
+	side_sim = a[1]
+	var b: Array = DropSim.create(Vector2i(512, 1024))
+	add_child(b[0])
+	top_sim = b[1]
+	for sim: DropSim in [side_sim, top_sim]:
+		sim.r_min = 0.9
+		sim.r_max = 3.2
+		sim.run_radius = 4.2
+		sim.trail_spacing = 5.0
+	side_sim.max_drops = 1000 if Game.quality >= 2 else 600
+	side_sim.spawn_rate = 360.0
+	top_sim.max_drops = 600 if Game.quality >= 2 else 380
+	top_sim.spawn_rate = 240.0
+	wet_material.set_shader_parameter("side_map", a[0].get_texture())
+	wet_material.set_shader_parameter("top_map", b[0].get_texture())
+	wet_material.set_shader_parameter("side_domain", Vector4(SIDE_DOMAIN.position.x, SIDE_DOMAIN.position.y, SIDE_DOMAIN.size.x, SIDE_DOMAIN.size.y))
+	wet_material.set_shader_parameter("top_domain", Vector4(TOP_DOMAIN.position.x, TOP_DOMAIN.position.y, TOP_DOMAIN.size.x, TOP_DOMAIN.size.y))
+	wet_material.set_shader_parameter("use_sim", true)
+	# Pre-warm: the bike has been out in the rain for a while already.
+	side_sim.flow = Vector2(0, 90)
+	top_sim.flow = Vector2.ZERO
+	top_sim.run_radius = 99.0
+	for k in 150:
+		side_sim.step(1.0 / 30.0)
+		top_sim.step(1.0 / 30.0)
+
 func set_wet_speed(v01: float) -> void:
-	if wet_material:
-		wet_material.set_shader_parameter("speed", v01)
+	if wet_material == null:
+		return
+	wet_material.set_shader_parameter("speed", v01)
+	wet_material.set_shader_parameter("world_to_bike", lean_node.global_transform.affine_inverse())
+	if side_sim:
+		# The two bodywork sims update on alternate frames (each with a double time step).
+		_body_frame += 1
+		var dt := get_process_delta_time() * 2.0
+		# Map y is down (= world down). Airflow pushes drops backwards (+z = +x in the side map).
+		side_sim.flow = Vector2(lerpf(0.0, 2600.0, v01 * v01), 90.0)
+		side_sim.run_radius = lerpf(4.2, 1.6, v01)
+		side_sim.max_speed = lerpf(120.0, 2400.0, v01)
+		if _body_frame % 2 == 0:
+			side_sim.step(dt)
+		# Top surfaces: no gravity run, wind sweeps drops backwards (+z = +y in the top map).
+		top_sim.flow = Vector2(0.0, lerpf(0.0, 2600.0, v01 * v01))
+		top_sim.run_radius = lerpf(99.0, 1.4, clampf(v01 * 3.0, 0.0, 1.0))
+		top_sim.max_speed = lerpf(10.0, 2400.0, v01)
+		if _body_frame % 2 == 1:
+			top_sim.step(dt)
 
 func set_brake_light(on: bool) -> void:
 	for m in _taillight_mats:

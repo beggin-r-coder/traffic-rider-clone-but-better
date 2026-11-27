@@ -45,6 +45,10 @@ Toggle **Weather: Rain** in the menu (any time of day; `--rain` on the command l
   less so. Low graphics uses sky reflections only.
 - **Rain:** streak particles stretched along the rain's velocity *relative to you*, so they rake
   towards you at speed; splashes on the road ahead; spray off the rear tyre.
+- **Simulated water drops** (`scripts/drop_sim.gd`): rain on the visor and the bodywork is a particle
+  simulation — beads land, touching drops merge (volume conserved), heavy drops run with stick-slip
+  motion, shed trails of tiny droplets and sweep up beads; wind takes over with speed. Drops render into
+  a water map (normal + thickness) that the visor/bike shaders use for lens refraction and highlights.
 - **Visor drops (first person):** drops bead on the helmet visor, refract the view, and get blown
   outwards/upwards by the airflow as you speed up (slide down when slow).
 - **Wet bike and rider:** every surface gets a glossier clear coat, plus an overlay pass of water

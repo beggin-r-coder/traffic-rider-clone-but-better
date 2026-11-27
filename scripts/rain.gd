@@ -124,9 +124,23 @@ func _build_spray() -> void:
 	spray.draw_pass_1 = q
 	add_child(spray)
 
+var visor_sim: DropSim
+var _visor_vp: SubViewport
+
 func _build_visor(ui_parent: Node) -> void:
 	if _quality == 0:
 		return
+	# Simulated drops on the visor (half screen resolution water map).
+	var made: Array = DropSim.create(Vector2i(640, 360))
+	_visor_vp = made[0]
+	visor_sim = made[1]
+	visor_sim.max_drops = 900 if _quality >= 2 else 560
+	visor_sim.spawn_rate = 170.0
+	visor_sim.r_min = 1.0
+	visor_sim.r_max = 6.5
+	visor_sim.run_radius = 7.0
+	visor_sim.trail_spacing = 7.0
+	add_child(_visor_vp)
 	var layer := CanvasLayer.new()
 	layer.layer = 1                # under the HUD
 	ui_parent.add_child(layer)
@@ -134,9 +148,15 @@ func _build_visor(ui_parent: Node) -> void:
 	visor.set_anchors_preset(Control.PRESET_FULL_RECT)
 	visor.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_visor_mat = ShaderMaterial.new()
-	_visor_mat.shader = preload("res://shaders/visor_rain.gdshader")
+	_visor_mat.shader = preload("res://shaders/visor_drops.gdshader")
+	_visor_mat.set_shader_parameter("water", _visor_vp.get_texture())
 	visor.material = _visor_mat
 	layer.add_child(visor)
+	# Pre-warm the visor so the run starts with water on it.
+	visor_sim.flow = Vector2(0, 70)
+	visor_sim.max_speed = 160.0
+	for k in 240:
+		visor_sim.step(1.0 / 30.0)
 
 # ------------------------------------------------------------------ planar reflection
 
@@ -206,5 +226,12 @@ func update(dt: float) -> void:
 		visor.visible = Game.view == Game.View.FIRST_PERSON and not rider.is_crashed and not Game.has_flag("photo")
 		var vs := visor.get_viewport_rect().size
 		_visor_mat.set_shader_parameter("aspect", vs.x / maxf(vs.y, 1.0))
-		_visor_mat.set_shader_parameter("speed", clampf(rider.v / 45.0, 0.0, 1.0))
+		# Airflow: at rest drops run down; with speed the wind blows them up and outwards.
+		var v01 := clampf(rider.v / 40.0, 0.0, 1.0)
+		visor_sim.flow = Vector2(0.0, lerpf(70.0, -260.0, v01))
+		visor_sim.radial_wind = 520.0 * v01 * v01
+		visor_sim.run_radius = lerpf(7.0, 3.5, v01)       # wind tears off smaller drops
+		visor_sim.max_speed = lerpf(160.0, 1100.0, v01)
+		# Faster riding = more drops hitting the visor.
+		visor_sim.step(get_process_delta_time(), 1.0 + v01 * 1.5)
 	_update_reflection()
