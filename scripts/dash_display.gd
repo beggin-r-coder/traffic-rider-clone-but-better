@@ -11,6 +11,7 @@ const SCREEN_SIZE := Vector2(330, 128)        # active screen area (pixels)
 var speed := 0.0
 var rpm := 1300.0
 var gear := 1
+var redline := 14000.0
 var _shown := Vector3(-1, -1, -1)
 var _canvas: DashCanvas
 
@@ -21,10 +22,11 @@ func _init() -> void:
 	render_target_update_mode = SubViewport.UPDATE_ONCE
 
 func setup(photo: Texture2D) -> void:
-	var bg := TextureRect.new()
-	bg.texture = photo
-	bg.size = Vector2(1024, 512)
-	add_child(bg)
+	if photo:
+		var bg := TextureRect.new()
+		bg.texture = photo
+		bg.size = Vector2(1024, 512)
+		add_child(bg)
 	_canvas = DashCanvas.new()
 	_canvas.dash = self
 	_canvas.size = Vector2(1024, 512)
@@ -56,9 +58,10 @@ class DashCanvas extends Control:
 		var dim := Color(0.35, 0.37, 0.4)
 		var red := Color(1.0, 0.16, 0.12)
 		var rpm := dash.rpm
-		var shift := rpm > 12900.0 and fmod(Time.get_ticks_msec() / 90.0, 2.0) < 1.0
+		var red_from := dash.redline - 1500.0
+		var shift := rpm > dash.redline - 1100.0 and fmod(Time.get_ticks_msec() / 90.0, 2.0) < 1.0
 		# --- tach: 28 segments rising left to right (R1 style), x1000 r/min ---
-		var segs := 28
+		var segs := int(ceil(dash.redline / 500.0))
 		var x0 := -hw + 10.0
 		var w := sz.x - 20.0
 		var seg_w := w / segs
@@ -69,15 +72,15 @@ class DashCanvas extends Control:
 			var y := -hh + 34.0 - hgt
 			var col := dim
 			if v <= rpm:
-				col = red if v > 12500.0 else white
-			if v > 12500.0 and v > rpm:
+				col = red if v > red_from else white
+			if v > red_from and v > rpm:
 				col = Color(0.45, 0.08, 0.06)
 			if shift:
 				col = red
 			draw_rect(Rect2(x + 1, y, seg_w - 2, hgt), col)
-		for n: int in [4, 6, 8, 10, 12, 14]:
+		for n in range(4, int(segs / 2) + 1, 2):
 			var x := x0 + (n * 2 - 1) * seg_w + seg_w * 0.5
-			draw_string(f, Vector2(x - 6, -hh + 47), str(n), HORIZONTAL_ALIGNMENT_LEFT, -1, 11, red if n >= 13 else white)
+			draw_string(f, Vector2(x - 6, -hh + 47), str(n), HORIZONTAL_ALIGNMENT_LEFT, -1, 11, red if n * 1000.0 > red_from else white)
 		draw_string(f, Vector2(-hw + 8, -hh + 47), "x1000r/min", HORIZONTAL_ALIGNMENT_LEFT, -1, 9, dim)
 		# --- speed ---
 		var sp := str(int(round(dash.speed)))

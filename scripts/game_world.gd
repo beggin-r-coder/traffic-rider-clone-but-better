@@ -79,7 +79,7 @@ func _ready() -> void:
 	rider.power_mult = 1.0 + 0.07 * Game.upgrade_level("engine")
 	rider.top_mult = 1.0 + 0.02 * Game.upgrade_level("engine")
 	rider.brake_mult = 1.0 + 0.08 * Game.upgrade_level("brakes")
-	rider.handling_mult = 1.0 + 0.05 * Game.upgrade_level("handling")
+	rider.handling_mult = rider.base_handling * (1.0 + 0.05 * Game.upgrade_level("handling"))
 	rider.bike.set_paint(Game.bike_color)
 	rider.reset_at(4.0, Road.LANE_W * 0.5)
 	rider.set_view(Game.view)

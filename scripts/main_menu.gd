@@ -17,6 +17,12 @@ var cash_lbl: Label
 var garage_panel: Control
 var _upgrade_rows := {}
 var _paint_btns: Array[Button] = []
+var _browse := 0                  # bike shown in the garage (may not be owned yet)
+var _bike_name: Label
+var _bike_blurb: Label
+var _bike_stats: Label
+var _bike_btn: Button
+var _turntable: Node3D
 
 func _ready() -> void:
 	_build_scene()
@@ -89,9 +95,9 @@ func _build_scene() -> void:
 	disc.material_override = dm
 	disc.position.y = 0.03
 	turntable.add_child(disc)
-	bike = BikeVisual.new()
-	bike.position.y = 0.06
-	turntable.add_child(bike)
+	_turntable = turntable
+	_browse = Game.bike
+	_spawn_bike(Game.bike)
 	# Studio softboxes: bright panels around the bike that show up as long highlights in the paint.
 	var soft := StandardMaterial3D.new()
 	soft.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
@@ -221,10 +227,10 @@ func _build_ui() -> void:
 	set_btn.pressed.connect(func(): _show_settings(true))
 	row.add_child(set_btn)
 
-	var credit := _label("Bike model: \"2022 Yamaha R1\" by Hari (Sketchfab)", 14, Color(1, 1, 1, 0.35))
+	var credit := _label("R1 model: \"2022 Yamaha R1\" by Hari (Sketchfab). Kawasaki + biker models: user supplied", 14, Color(1, 1, 1, 0.35))
 	credit.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	credit.position = Vector2(-420, -34)
-	credit.size = Vector2(400, 24)
+	credit.position = Vector2(-720, -34)
+	credit.size = Vector2(700, 24)
 	credit.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	ui.add_child(credit)
 	cash_lbl = _label("$%d" % Game.cash, 30, ACCENT)
@@ -319,6 +325,32 @@ func _build_garage() -> void:
 	v.add_theme_constant_override("separation", 12)
 	garage_panel.add_child(v)
 	v.add_child(_label("GARAGE", 44, Color.WHITE))
+	# --- bike selector ---
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 14)
+	v.add_child(row)
+	var prev := _button("<", Color(0.16, 0.18, 0.24), 28)
+	prev.custom_minimum_size = Vector2(64, 60)
+	prev.pressed.connect(func(): _browse_bike(-1))
+	row.add_child(prev)
+	var nb := VBoxContainer.new()
+	nb.custom_minimum_size = Vector2(430, 0)
+	nb.add_theme_constant_override("separation", 0)
+	_bike_name = _label("", 30, Color.WHITE)
+	_bike_blurb = _label("", 15, Color(1, 1, 1, 0.6))
+	nb.add_child(_bike_name)
+	nb.add_child(_bike_blurb)
+	row.add_child(nb)
+	var nxt := _button(">", Color(0.16, 0.18, 0.24), 28)
+	nxt.custom_minimum_size = Vector2(64, 60)
+	nxt.pressed.connect(func(): _browse_bike(1))
+	row.add_child(nxt)
+	_bike_btn = _button("", Color(0.88, 0.5, 0.04), 22)
+	_bike_btn.custom_minimum_size = Vector2(170, 60)
+	_bike_btn.pressed.connect(_bike_action)
+	row.add_child(_bike_btn)
+	_bike_stats = _label("", 16, Color(0.85, 0.88, 0.95))
+	v.add_child(_bike_stats)
 	v.add_child(_label("PAINT", 18, Color(1, 1, 1, 0.6)))
 	var paints := HBoxContainer.new()
 	paints.add_theme_constant_override("separation", 10)
@@ -366,11 +398,53 @@ func _build_garage() -> void:
 	v.add_child(back)
 	_refresh_garage()
 
+func _spawn_bike(i: int) -> void:
+	if bike:
+		bike.queue_free()
+	bike = BikeVisual.new()
+	bike.def = BikeDefs.get_def(i)
+	bike.position.y = 0.06
+	_turntable.add_child(bike)
+	bike.set_paint(Game.bike_color)
+
+func _browse_bike(step: int) -> void:
+	_browse = posmod(_browse + step, BikeDefs.count())
+	if _browse in Game.owned_bikes:
+		Game.bike = _browse
+		Game.save()
+	_spawn_bike(_browse)
+	_refresh_garage()
+
+func _bike_action() -> void:
+	if _browse in Game.owned_bikes:
+		return
+	var price: int = BikeDefs.get_def(_browse)["price"]
+	if Game.cash < price:
+		return
+	Game.cash -= price
+	Game.owned_bikes.append(_browse)
+	Game.bike = _browse
+	Game.save()
+	_refresh_garage()
+
 func _refresh_garage() -> void:
 	cash_lbl.text = "$%d" % Game.cash
+	var d := BikeDefs.get_def(_browse)
+	_bike_name.text = d["name"]
+	_bike_blurb.text = d["blurb"]
+	var gt: Array = d["gear_top"]
+	_bike_stats.text = "%d hp   ·   %d km/h   ·   %d kg   ·   handling %d%%" % [int(d["power"] / 745.7 * 1.12), int(gt[-1] * 3.6), int(d["mass"]) - 80, int(d["handling"] * 100.0)]
+	var owned: bool = _browse in Game.owned_bikes
+	if owned:
+		_bike_btn.text = "RIDING" if Game.bike == _browse else "OWNED"
+		_bike_btn.disabled = true
+	else:
+		_bike_btn.text = "BUY $%d" % int(d["price"])
+		_bike_btn.disabled = Game.cash < int(d["price"])
+	_bike_btn.modulate.a = 0.6 if _bike_btn.disabled and not owned else 1.0
 	for i in _paint_btns.size():
 		var b := _paint_btns[i]
-		var col: Color = BikeVisual.PAINTS[i][4]
+		var col: Color = BikeVisual.PAINTS[i][4] if i > 0 else BikeVisual.factory_swatch(d)
 		for st in ["normal", "hover", "pressed"]:
 			var sb := StyleBoxFlat.new()
 			sb.bg_color = col if st != "hover" else col.lightened(0.1)
@@ -400,6 +474,10 @@ func _show_garage(on: bool) -> void:
 	main_panel.visible = not on
 	if on:
 		_refresh_garage()
+	elif _browse != Game.bike:
+		# Left the garage looking at a bike that isn't owned: back to the one being ridden.
+		_browse = Game.bike
+		_spawn_bike(Game.bike)
 
 func _show_settings(on: bool) -> void:
 	settings_panel.visible = on

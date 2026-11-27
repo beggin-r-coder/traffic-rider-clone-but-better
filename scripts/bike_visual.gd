@@ -8,15 +8,26 @@ class_name BikeVisual
 
 const MODEL := preload("res://assets/bike/scene.gltf")
 
-## Paint schemes selectable in the garage: [name, hue shift, saturation x, value x, swatch].
+## Paint schemes selectable in the garage: [name, target hue (-1 = keep), saturation x, value x, swatch].
+## Index 0 is the bike's factory livery.
 const PAINTS := [
-	["Racing Blue", 0.0, 1.0, 1.0, Color(0.1, 0.2, 0.75)],
-	["Rosso", 0.32, 1.1, 1.25, Color(0.85, 0.08, 0.08)],
-	["Midnight", 0.0, 0.15, 0.35, Color(0.12, 0.12, 0.14)],
-	["Acid Green", -0.37, 1.0, 1.5, Color(0.35, 0.85, 0.1)],
-	["Sunburst", 0.42, 1.1, 1.8, Color(1.0, 0.55, 0.05)],
-	["Pearl", 0.0, 0.05, 2.6, Color(0.9, 0.9, 0.92)],
+	["Factory", -1.0, 1.0, 1.0, Color(0, 0, 0, 0)],
+	["Racing Blue", 0.66, 1.0, 1.0, Color(0.1, 0.2, 0.75)],
+	["Rosso", 0.98, 1.1, 1.25, Color(0.85, 0.08, 0.08)],
+	["Midnight", -1.0, 0.15, 0.35, Color(0.12, 0.12, 0.14)],
+	["Acid Green", 0.29, 1.0, 1.5, Color(0.35, 0.85, 0.1)],
+	["Sunburst", 0.08, 1.1, 1.8, Color(1.0, 0.55, 0.05)],
+	["Pearl", -1.0, 0.05, 2.6, Color(0.9, 0.9, 0.92)],
 ]
+
+## Factory swatch colour of a bike (for the garage paint chips).
+static func factory_swatch(d: Dictionary) -> Color:
+	match String(d.get("id", "r1")):
+		"r1": return Color(0.1, 0.2, 0.75)
+		"zx6r": return Color(0.2, 0.75, 0.1)
+	return d.get("factory_color", Color(0.1, 0.1, 0.1))
+
+var def: Dictionary = {}       # BikeDefs entry; defaults to the selected bike
 
 var lean_node: Node3D
 var dash: DashDisplay
@@ -32,12 +43,25 @@ var _paint_mats: Array[ShaderMaterial] = []
 var _paint_cache := {}
 
 func _ready() -> void:
+	if def.is_empty():
+		def = BikeDefs.current()
 	lean_node = Node3D.new()
 	lean_node.name = "Lean"
 	add_child(lean_node)
-	var model: Node3D = MODEL.instantiate()
-	lean_node.add_child(model)
-	_setup_model(model)
+	if def.has("model"):
+		var holder := Node3D.new()
+		holder.name = "Model"
+		lean_node.add_child(holder)
+		# Normalise: rotate + scale into bike space, then shift so the origin is on the ground
+		# midway between the contact patches (offset measured on the mesh, see BikeDefs).
+		holder.transform = Transform3D(Basis(Vector3.UP, deg_to_rad(def["rot_y"])).scaled(Vector3.ONE * float(def["scale"])), -def["offset"])
+		var m: Node3D = load(def["model"]).instantiate()
+		holder.add_child(m)
+		_setup_generic(holder)
+	else:
+		var model: Node3D = MODEL.instantiate()
+		lean_node.add_child(model)
+		_setup_model(model)
 
 func _setup_model(model: Node3D) -> void:
 	var meshes: Array[MeshInstance3D] = []
@@ -289,36 +313,46 @@ func roll(distance: float) -> void:
 	rear_wheel.rotation.x = _wheel_angle
 
 # --- brake (right) and clutch (left) levers, cut out of the merged mesh so they can pivot ---
-const LEVER_PIVOT := Vector3(0.238, 0.952, -0.494)   # right lever pivot (bike space); left is mirrored
 const LEVER_MAX_ANGLE := deg_to_rad(18.0)
-const LEVER_BOX_MIN := Vector3(0.236, 0.885, -0.53)
-const LEVER_BOX_MAX := Vector3(0.385, 0.97, -0.44)
 var brake_lever: Node3D
 var clutch_lever: Node3D
 
 ## Axis the lever swings about (perpendicular to the bar, roughly "up"); for side +1 / -1.
-static func lever_axis(side: float) -> Vector3:
-	var gi := Vector3(0.228 * side, 0.959, -0.430)
-	var go := Vector3(0.348 * side, 0.921, -0.363)
+static func lever_axis(d: Dictionary, side: float) -> Vector3:
+	var gi: Vector3 = d["grip_in"] * Vector3(side, 1, 1)
+	var go: Vector3 = d["grip_out"] * Vector3(side, 1, 1)
 	var a := (go - gi).normalized()
 	return (Vector3.UP - a * Vector3.UP.dot(a)).normalized()
 
 ## Rotation of a lever for pull 0..1 (moves the lever end back towards the grip).
-static func lever_basis(side: float, pull: float) -> Basis:
-	return Basis(lever_axis(side), -side * LEVER_MAX_ANGLE * clampf(pull, 0.0, 1.0))
+static func lever_basis(d: Dictionary, side: float, pull: float) -> Basis:
+	return Basis(lever_axis(d, side), -side * LEVER_MAX_ANGLE * clampf(pull, 0.0, 1.0))
 
-static func lever_pivot(side: float) -> Vector3:
-	return Vector3(LEVER_PIVOT.x * side, LEVER_PIVOT.y, LEVER_PIVOT.z)
+static func lever_pivot(d: Dictionary, side: float) -> Vector3:
+	var p: Vector3 = d["lever_pivot"]
+	return Vector3(p.x * side, p.y, p.z)
 
 func _split_levers(model: Node3D) -> void:
 	var all: Array[MeshInstance3D] = []
 	_collect(model, all)
+	var box_min: Vector3 = def.get("lever_box_min", Vector3(0.236, 0.885, -0.53))
+	var box_max: Vector3 = def.get("lever_box_max", Vector3(0.385, 0.97, -0.44))
+	var whole_tri: bool = def.has("model")     # generic bikes: only triangles entirely inside the box
+	var only: Array = def.get("lever_meshes", [])
 	var parts := {1.0: SurfaceTool.new(), -1.0: SurfaceTool.new()}
 	var counts := {1.0: 0, -1.0: 0}
 	var lever_mat: Material = null
 	for mi in all:
-		if _mat_name(mi) != "Front_End_-_Aluminum":
+		if not def.has("model") and _mat_name(mi) != "Front_End_-_Aluminum":
 			continue
+		if not only.is_empty() and not String(mi.name) in only:
+			continue
+		if def.has("model"):
+			var ab: AABB = _rel_xform(mi) * mi.mesh.get_aabb()
+			var bb := AABB(box_min, box_max - box_min)
+			var bm := AABB(Vector3(-box_max.x, box_min.y, box_min.z), box_max - box_min)
+			if not (ab.intersects(bb) or ab.intersects(bm)):
+				continue
 		var xf := _rel_xform(mi)
 		var src := mi.mesh
 		var out := ArrayMesh.new()
@@ -338,10 +372,13 @@ func _split_levers(model: Node3D) -> void:
 				var tri := [idx[t * 3], idx[t * 3 + 1], idx[t * 3 + 2]]
 				var cen := (xf * verts[tri[0]] + xf * verts[tri[1]] + xf * verts[tri[2]]) / 3.0
 				var side := signf(cen.x)
-				var q := Vector3(absf(cen.x), cen.y, cen.z)
-				var inside := q.x > LEVER_BOX_MIN.x and q.x < LEVER_BOX_MAX.x and q.y > LEVER_BOX_MIN.y and q.y < LEVER_BOX_MAX.y and q.z > LEVER_BOX_MIN.z and q.z < LEVER_BOX_MAX.z
+				var inside := _in_box(cen, box_min, box_max)
+				if inside and whole_tri:
+					for v in tri:
+						if not _in_box(xf * verts[v], box_min, box_max):
+							inside = false
 				if inside:
-					var piv := lever_pivot(side)
+					var piv := lever_pivot(def, side)
 					for v in tri:
 						parts[side].set_normal(xf.basis * norms[v])
 						if uvs != null and uvs.size() == verts.size():
@@ -359,7 +396,7 @@ func _split_levers(model: Node3D) -> void:
 			continue
 		var pivot := Node3D.new()
 		pivot.name = "BrakeLever" if side > 0 else "ClutchLever"
-		pivot.position = lever_pivot(side)
+		pivot.position = lever_pivot(def, side)
 		lean_node.add_child(pivot)
 		var lm := MeshInstance3D.new()
 		lm.mesh = parts[side].commit()
@@ -369,11 +406,15 @@ func _split_levers(model: Node3D) -> void:
 		else:
 			clutch_lever = pivot
 
+static func _in_box(p: Vector3, lo: Vector3, hi: Vector3) -> bool:
+	var q := Vector3(absf(p.x), p.y, p.z)
+	return q.x > lo.x and q.x < hi.x and q.y > lo.y and q.y < hi.y and q.z > lo.z and q.z < hi.z
+
 func set_levers(brake: float, clutch: float) -> void:
 	if brake_lever:
-		brake_lever.basis = lever_basis(1.0, brake)
+		brake_lever.basis = lever_basis(def, 1.0, brake)
 	if clutch_lever:
-		clutch_lever.basis = lever_basis(-1.0, clutch)
+		clutch_lever.basis = lever_basis(def, -1.0, clutch)
 
 # --- working rear-view mirrors ---
 var mirror_viewport: SubViewport
@@ -381,7 +422,6 @@ var mirror_camera: Camera3D
 var _mirror_mats: Array[ShaderMaterial] = []
 var _mirror_glass: Array[MeshInstance3D] = []
 var _mirror_frame := 0
-const MIRROR_CAM_LOCAL := Vector3(0.0, 1.22, -0.25)   # behind the screen, roughly at rider eye height
 
 ## Rebuilds the mirror glass with planar UVs and a material that shows the rear camera image.
 ## `live` = render a real rear view (costs one extra low-res render per frame).
@@ -402,21 +442,45 @@ func enable_mirrors(live: bool) -> void:
 		mirror_camera.cull_mask = 0xFFFFF & ~BIKE_LAYER
 		mirror_viewport.add_child(mirror_camera)
 		mirror_camera.current = true
+	var generic: bool = def.has("model")
 	for mi in all:
-		if _mat_name(mi) != "Mirrors":
+		if generic:
+			if not String(mi.name) in def.get("mirror_meshes", []):
+				continue
+		elif _mat_name(mi) != "Mirrors":
 			continue
 		var xf := _rel_xform(mi)
-		var arrays := mi.mesh.surface_get_arrays(0)
-		var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
-		var idx: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+		# Generic models: the glass is the set of rear-facing triangles out on the mirror heads; the
+		# housing stays. (The R1 has a separate glass material.)
+		var side_pts := {-1.0: [], 1.0: []}
+		var rebuilt := ArrayMesh.new()
+		for si in mi.mesh.get_surface_count():
+			var arrays := mi.mesh.surface_get_arrays(si)
+			var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+			var idx: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+			var keep := PackedInt32Array()
+			for t in idx.size() / 3:
+				var tri := [xf * verts[idx[t * 3]], xf * verts[idx[t * 3 + 1]], xf * verts[idx[t * 3 + 2]]]
+				var cx: float = (tri[0].x + tri[1].x + tri[2].x) / 3.0
+				var is_glass := true
+				if generic:
+					var fn: Vector3 = (tri[1] - tri[0]).cross(tri[2] - tri[0])
+					is_glass = fn.length() > 1e-9 and fn.normalized().z > 0.6 and absf(cx) > 0.22
+				if is_glass:
+					side_pts[signf(cx)].append_array(tri)
+				else:
+					keep.append_array([idx[t * 3], idx[t * 3 + 1], idx[t * 3 + 2]])
+			if generic:
+				arrays[Mesh.ARRAY_INDEX] = keep
+				if not keep.is_empty():
+					rebuilt.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+					rebuilt.surface_set_material(rebuilt.get_surface_count() - 1, mi.get_active_material(si))
+			if not generic:
+				break
 		for side: float in [-1.0, 1.0]:
 			var st := SurfaceTool.new()
 			st.begin(Mesh.PRIMITIVE_TRIANGLES)
-			var pts := []
-			for t in idx.size() / 3:
-				var tri := [xf * verts[idx[t * 3]], xf * verts[idx[t * 3 + 1]], xf * verts[idx[t * 3 + 2]]]
-				if signf((tri[0].x + tri[1].x + tri[2].x)) == side:
-					pts.append_array(tri)
+			var pts: Array = side_pts[side]
 			if pts.is_empty():
 				continue
 			var lo: Vector3 = pts[0]
@@ -455,14 +519,19 @@ func enable_mirrors(live: bool) -> void:
 			glass.position.z += 0.0015
 			_mirror_mats.append(m)
 			_mirror_glass.append(glass)
-		mi.visible = false
+		if generic:
+			mi.mesh = rebuilt
+			for si in rebuilt.get_surface_count():
+				mi.set_surface_override_material(si, null)
+		else:
+			mi.visible = false
 
 ## Keep the rear camera behind the rider, looking backwards (call every frame).
 func update_mirrors() -> void:
 	if mirror_camera == null:
 		return
 	var lt := lean_node.global_transform
-	var o := lt * MIRROR_CAM_LOCAL
+	var o := lt * (def["mirror_cam"] as Vector3)
 	mirror_camera.global_transform = Transform3D(Basis(), o).looking_at(o + lt.basis.z * 10.0 - lt.basis.y * 0.6, lt.basis.y)
 	# Medium graphics: refresh the mirrors every other frame to halve their cost.
 	if Game.quality == 1:
@@ -624,7 +693,258 @@ func _make_paintable(mi: MeshInstance3D) -> void:
 
 func set_paint(i: int) -> void:
 	var p: Array = PAINTS[clampi(i, 0, PAINTS.size() - 1)]
+	var base_hue: float = def.get("paint_hue", 0.66)
+	var solid := String(def.get("paint_mode", "hue")) == "solid"
 	for sm in _paint_mats:
-		sm.set_shader_parameter("hue_shift", p[1])
+		if solid:
+			sm.set_shader_parameter("solid_color", def.get("factory_color", Color(0.1, 0.1, 0.1)) if i == 0 else p[4])
+			continue
+		sm.set_shader_parameter("hue_shift", 0.0 if p[1] < 0.0 else p[1] - base_hue)
 		sm.set_shader_parameter("sat_mul", p[2])
 		sm.set_shader_parameter("val_mul", p[3])
+
+# ------------------------------------------------------------------ generic (BikeDefs) models
+
+func _setup_generic(holder: Node3D) -> void:
+	var meshes: Array[MeshInstance3D] = []
+	_collect(holder, meshes)
+	var by_name := {}
+	for mi in meshes:
+		by_name[String(mi.name)] = mi
+		if String(mi.name) in def.get("hide", []):
+			mi.visible = false
+	# --- wheels: hub = centre of the tyre's bounding box (bike space) ---
+	var fl: Array = def["front_wheel"]
+	var rl: Array = def["rear_wheel"]
+	var ft: MeshInstance3D = by_name[fl[0]]
+	var rt: MeshInstance3D = by_name[rl[0]]
+	var fab: AABB = _rel_xform(ft) * ft.mesh.get_aabb()
+	var rab: AABB = _rel_xform(rt) * rt.mesh.get_aabb()
+	front_hub = fab.get_center()
+	rear_hub = rab.get_center()
+	wheel_radius = (fab.size.y + rab.size.y) * 0.25
+	wheelbase = absf(front_hub.z - rear_hub.z)
+	front_wheel = Node3D.new()
+	front_wheel.name = "FrontWheel"
+	front_wheel.position = front_hub
+	lean_node.add_child(front_wheel)
+	rear_wheel = Node3D.new()
+	rear_wheel.name = "RearWheel"
+	rear_wheel.position = rear_hub
+	lean_node.add_child(rear_wheel)
+	for n in fl:
+		if by_name.has(n):
+			_move_to_wheel(by_name[n], front_wheel)
+	for n in rl:
+		if by_name.has(n):
+			_move_to_wheel(by_name[n], rear_wheel)
+	_split_levers(holder)
+	_generic_materials()
+	_generic_dash(by_name)
+
+func _generic_materials() -> void:
+	var all: Array[MeshInstance3D] = []
+	_collect(lean_node, all)
+	var tex_dir: String = def.get("textures", "")
+	var built := {}        # source material -> replacement
+	var finishes: Dictionary = def.get("finishes", {})
+	var paint_mats: Array = def.get("paint_mats", [])
+	var glass_mats: Array = def.get("glass_mats", [])
+	var glass_meshes: Array = def.get("glass_meshes", [])
+	var tail_meshes: Array = def.get("taillight_meshes", [])
+	var head_meshes: Array = def.get("headlight_meshes", [])
+	for mi in all:
+		if mi.mesh == null:
+			continue
+		mi.layers = BIKE_LAYER
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+		var mname := String(mi.name)
+		for si in mi.mesh.get_surface_count():
+			var src := mi.mesh.surface_get_material(si)
+			var rn: String = src.resource_name if src else ""
+			var m: Material = built.get(src)
+			if m == null:
+				if rn in paint_mats:
+					m = _generic_paint(src as BaseMaterial3D, tex_dir, rn)
+				elif rn in glass_mats:
+					m = _glass_material()
+				elif tex_dir != "" and ResourceLoader.exists(tex_dir + rn + "_albedo.png"):
+					m = _tex_material(tex_dir, rn)
+				elif src is BaseMaterial3D:
+					var d: BaseMaterial3D = (src as BaseMaterial3D).duplicate()
+					var f: Array = finishes.get(rn, [0.2, 0.5, 0.0])
+					d.metallic = f[0]
+					d.roughness = f[1]
+					d.metallic_specular = 0.6
+					if f[2] > 0.0:
+						d.clearcoat_enabled = true
+						d.clearcoat = f[2]
+						d.clearcoat_roughness = 0.05
+					if f.size() > 3:
+						d.albedo_color = f[3]
+					m = d
+				built[src] = m
+			# Per-mesh variants of a shared (atlas) material.
+			if mname in glass_meshes:
+				var g: BaseMaterial3D = (m as BaseMaterial3D).duplicate() if m is BaseMaterial3D else _glass_material()
+				g.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+				g.cull_mode = BaseMaterial3D.CULL_DISABLED
+				g.roughness = 0.04
+				if mname == "Windshield":
+					g.albedo_color = Color(0.5, 0.55, 0.6, 0.35)
+				m = g
+			elif mname in tail_meshes or mname in head_meshes:
+				var e: BaseMaterial3D = (m as BaseMaterial3D).duplicate()
+				e.emission_enabled = true
+				e.emission_texture = e.albedo_texture
+				if mname in tail_meshes:
+					e.emission = Color(1, 0.08, 0.04)
+					_taillight_mats.append(e)
+				else:
+					e.emission = Color(1.0, 0.97, 0.9)
+					e.emission_energy_multiplier = 2.5
+				m = e
+			elif m is BaseMaterial3D and (m as BaseMaterial3D).transparency != BaseMaterial3D.TRANSPARENCY_DISABLED and not rn in glass_mats and rn != "Decal":
+				# Atlas alpha only matters on the glass meshes; everything else is opaque.
+				var o: BaseMaterial3D = built.get([src, "opaque"])
+				if o == null:
+					o = (m as BaseMaterial3D).duplicate()
+					o.transparency = BaseMaterial3D.TRANSPARENCY_DISABLED
+					built[[src, "opaque"]] = o
+				m = o
+			mi.set_surface_override_material(si, m)
+
+func _glass_material() -> StandardMaterial3D:
+	var g := StandardMaterial3D.new()
+	g.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	g.albedo_color = Color(0.08, 0.1, 0.13, 0.25)
+	g.roughness = 0.04
+	g.metallic_specular = 0.8
+	g.cull_mode = BaseMaterial3D.CULL_DISABLED
+	return g
+
+func _tex_material(dir: String, rn: String) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.resource_name = rn
+	m.albedo_texture = load(dir + rn + "_albedo.png")
+	if ResourceLoader.exists(dir + rn + "_orm.png"):
+		var orm: Texture2D = load(dir + rn + "_orm.png")
+		m.roughness_texture = orm
+		m.roughness_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_GREEN
+		m.metallic_texture = orm
+		m.metallic_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_BLUE
+		m.metallic = 1.0
+		m.roughness = 1.0
+	if ResourceLoader.exists(dir + rn + "_normal.png"):
+		m.normal_enabled = true
+		m.normal_texture = load(dir + rn + "_normal.png")
+	m.metallic_specular = 0.6
+	if rn == "Decal":
+		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		m.clearcoat_enabled = true
+		m.clearcoat = 1.0
+		m.clearcoat_roughness = 0.04
+	return m
+
+func _generic_paint(src: BaseMaterial3D, tex_dir: String, rn: String) -> ShaderMaterial:
+	var sm := ShaderMaterial.new()
+	sm.shader = preload("res://shaders/bike_paint.gdshader")
+	if String(def.get("paint_mode", "hue")) == "solid":
+		sm.set_shader_parameter("solid", true)
+		sm.set_shader_parameter("solid_color", def.get("factory_color", Color(0.1, 0.1, 0.1)))
+		sm.set_shader_parameter("roughness", 0.1)
+		sm.set_shader_parameter("metallic", 0.55)
+	else:
+		sm.set_shader_parameter("albedo_tex", load(tex_dir + rn + "_albedo.png"))
+		sm.set_shader_parameter("mask_hue", def.get("paint_hue", 0.66))
+		sm.set_shader_parameter("roughness", 0.12)
+		if ResourceLoader.exists(tex_dir + rn + "_normal.png"):
+			sm.set_shader_parameter("use_normal", true)
+			sm.set_shader_parameter("normal_tex", load(tex_dir + rn + "_normal.png"))
+		if ResourceLoader.exists(tex_dir + rn + "_orm.png"):
+			sm.set_shader_parameter("use_orm", true)
+			sm.set_shader_parameter("orm_tex", load(tex_dir + rn + "_orm.png"))
+	_paint_mats.append(sm)
+	return sm
+
+## Live dash: a quad on the instrument face showing the DashDisplay screen.
+func _generic_dash(by_name: Dictionary) -> void:
+	var dd: Dictionary = def.get("dash", {})
+	if dd.is_empty():
+		return
+	var center: Vector3
+	var nrm: Vector3
+	var w: float
+	if dd.has("decal_mesh") and by_name.has(dd["decal_mesh"]):
+		# Fit a plane to the printed dash decal.
+		var mi: MeshInstance3D = by_name[dd["decal_mesh"]]
+		var xf := _rel_xform(mi)
+		var pts := PackedVector3Array()
+		for si in mi.mesh.get_surface_count():
+			for v in (mi.mesh.surface_get_arrays(si)[Mesh.ARRAY_VERTEX] as PackedVector3Array):
+				pts.append(xf * v)
+		center = Vector3.ZERO
+		for p in pts:
+			center += p
+		center /= pts.size()
+		var lo := pts[0]
+		var hi := pts[0]
+		for p in pts:
+			lo = lo.min(p)
+			hi = hi.max(p)
+		# Normal: the plane through the extents (x width, y-z slope), facing up/back to the rider.
+		var dz := hi.z - lo.z
+		var dy := hi.y - lo.y
+		nrm = Vector3(0, dz, dy).normalized()
+		w = (hi.x - lo.x) * 0.95
+	else:
+		center = dd["center"]
+		var t := deg_to_rad(float(dd["tilt"]))
+		nrm = Vector3(0, sin(t), cos(t))
+		w = (dd["size"] as Vector2).x
+	dash = DashDisplay.new()
+	dash.name = "Dash"
+	dash.redline = float(def["redline"])
+	add_child(dash)
+	dash.setup(null)
+	var h := w / (DashDisplay.SCREEN_SIZE.x / DashDisplay.SCREEN_SIZE.y)
+	var right := Vector3.RIGHT
+	var up := nrm.cross(right).normalized() * -1.0
+	if up.y < 0.0:
+		up = -up
+	var tex_size := Vector2(1024, 512)
+	var c := DashDisplay.SCREEN_CENTER
+	var hs := DashDisplay.SCREEN_SIZE * 0.5
+	var u0 := (c.x - hs.x) / tex_size.x
+	var u1 := (c.x + hs.x) / tex_size.x
+	# The overlay is drawn flipped vertically about the screen centre.
+	var v_top := (c.y + hs.y) / tex_size.y
+	var v_bot := (c.y - hs.y) / tex_size.y
+	var o := center + nrm * 0.003
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var corners := [
+		[o - right * w * 0.5 + up * h * 0.5, Vector2(u0, v_top)],
+		[o + right * w * 0.5 + up * h * 0.5, Vector2(u1, v_top)],
+		[o + right * w * 0.5 - up * h * 0.5, Vector2(u1, v_bot)],
+		[o - right * w * 0.5 - up * h * 0.5, Vector2(u0, v_bot)],
+	]
+	for k in [0, 1, 2, 0, 2, 3]:
+		st.set_normal(nrm)
+		st.set_uv(corners[k][1])
+		st.add_vertex(corners[k][0])
+	var q := MeshInstance3D.new()
+	q.name = "DashScreen"
+	q.mesh = st.commit()
+	q.layers = BIKE_LAYER
+	q.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var dm := StandardMaterial3D.new()
+	var vt := dash.get_texture()
+	dm.albedo_texture = vt
+	dm.emission_enabled = true
+	dm.emission_texture = vt
+	dm.emission_energy_multiplier = 0.9
+	dm.roughness = 0.15
+	dm.cull_mode = BaseMaterial3D.CULL_DISABLED
+	q.material_override = dm
+	lean_node.add_child(q)

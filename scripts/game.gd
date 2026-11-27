@@ -30,6 +30,8 @@ var best_scores := {}              # mode(int) -> score
 var best_distance := 0.0
 var cash := 0
 var bike_color := 0
+var bike := 0                      # index into BikeDefs.LIST
+var owned_bikes: Array = [0]
 var upgrades := {"engine": 0, "brakes": 0, "handling": 0}
 const UPGRADE_MAX := 5
 const UPGRADE_INFO := {
@@ -75,6 +77,9 @@ func _ready() -> void:
 		steering = Steering.TOUCH
 	if has_flag("cash"):
 		cash = int(flag("cash", "0"))
+	if has_flag("bike"):
+		var bf := String(flag("bike", "0"))
+		bike = int(bf) if bf.is_valid_int() else maxi(0, ["r1", "h2", "zx6r"].find(bf))
 	if has_flag("paint"):
 		bike_color = int(flag("paint", "0"))
 	if has_flag("quality"):
@@ -169,6 +174,8 @@ func save() -> void:
 	c.set_value("progress", "cash", cash)
 	c.set_value("progress", "bike_color", bike_color)
 	c.set_value("progress", "upgrades", upgrades)
+	c.set_value("progress", "bike", bike)
+	c.set_value("progress", "owned_bikes", owned_bikes)
 	c.set_value("run", "mode", mode)
 	c.set_value("run", "time_of_day", time_of_day)
 	c.set_value("run", "rain", rain)
@@ -193,6 +200,10 @@ func load_save() -> void:
 	best_distance = c.get_value("progress", "best_distance", 0.0)
 	cash = c.get_value("progress", "cash", 0)
 	bike_color = c.get_value("progress", "bike_color", 0)
+	bike = c.get_value("progress", "bike", 0)
+	owned_bikes = c.get_value("progress", "owned_bikes", [0])
+	if not bike in owned_bikes:
+		bike = 0
 	var up: Dictionary = c.get_value("progress", "upgrades", {})
 	for k in up:
 		upgrades[k] = int(up[k])

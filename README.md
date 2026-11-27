@@ -15,8 +15,12 @@ into real curves. Inspired by the traffic-racer genre, with a focus on:
   guard rails, street lights, km signs, distant mountains.
 - **Engine model**: power curve, 6-speed auto gearbox with shift cut, traction limit when leaned,
   braking that gets weaker the more you lean, drag, and road slope.
-- **First-person cockpit** from the supplied 2022 Yamaha R1 model with gloved rider arms, head
-  that stays more upright than the bike, speed FOV, vibration, and a chase cam with a full rider.
+- **Three bikes** (Garage): Yamaha YZF-R1 (balanced), Kawasaki Ninja H2 (supercharged, fastest,
+  heaviest) and Kawasaki Ninja ZX-6R (lightest, sharpest steering, screaming 16,000 rpm redline). Each
+  has its own power, weight, drag, gearing, redline, lean limit and handling, a live dash scaled to its
+  rev range, working mirrors, pivoting levers and its own rider contact points.
+- **First-person cockpit** with gloved rider arms, head that stays more upright than the bike, speed
+  FOV, vibration.
 - **Procedural audio**: crossplane inline-4 engine (uneven 270-180-90-180° firing order) baked into
   RPM loops and cross-faded, plus wind, tyre roar, rail scrape, horns, near-miss whoosh, crash.
 - **Modes**: One-Way, Two-Way (oncoming lane = x2 score), Time Trial (checkpoints add time).
@@ -65,13 +69,38 @@ Toggle **Weather: Rain** in the menu (any time of day; `--rain` on the command l
 ![](docs/rain_chase.png)
 ![](docs/rain_night.png)
 
+## Bikes
+
+`scripts/bike_defs.gd` holds one entry per bike: performance, how to normalise the model (rotation,
+scale, ground offset), which meshes are the wheels / mirrors / lights / glass, material finishes, and
+the rider contact points (grips, brake lever, footpegs, seat). The contact points were measured on
+each mesh from orthographic renders with a 5 cm grid. `BikeVisual` builds any bike from its entry:
+the wheels are re-parented to spinning hubs, the brake and clutch levers are cut out of the mesh so
+they pivot, the mirror glass (the rear-facing triangles on the mirror heads) shows a live rear camera,
+and a live TFT dash is placed on the instrument face.
+
+- **ZX-6R:** the 4K PBR texture set was reduced to 2K/1K albedo + packed roughness/metal + normal maps
+  (`assets/bikes/zx6r/tex/`); the green livery is the repaintable part.
+- **H2:** the model has no textures, only vertex colours, so it gets per-material finishes (mirror-black
+  clear-coated paint, glossy green trellis frame, metallic engine, chrome pipes).
+
+![](docs/bikes.png)
+![](docs/garage_bikes.png)
+
+Add a bike: drop the model in `assets/bikes/<id>/`, add an entry to `BikeDefs.LIST`, and check the
+contact points with `--posetest=DIR --markers --bike=<id>`.
+
 ## Rider
 
-The rider is a Ready Player Me style avatar (`assets/rider/rider.glb`) posed procedurally every frame
-by `scripts/rider_model.gd`, against contact points measured on the R1 mesh:
+The rider is the leather-suited biker (`assets/rider2/Biker.glb`), posed procedurally every frame by
+`scripts/rider_model.gd` against the selected bike's contact points. The solver works through a
+bone-name profile, so it also drives the older Ready Player Me avatar (`--rider=rpm`). The biker has
+mitten glove fingers and no toe bones; the finger tips and toes are found from the skin weights.
 
-- **Posture:** pelvis on the seat, spine curved into a sport tuck (deeper at speed), neck/head counter-
-  rotated so the eyes stay level, looking into turns; hangs off the inside of the bike when leaning.
+- **Posture:** pelvis on the seat, spine curved into a sport tuck (deeper at speed). The torso pitch is
+  then solved per bike so the shoulders sit at a natural reach from that bike's bars (elbows bent).
+  Neck/head are counter-rotated so the eyes stay level, looking into turns; the rider hangs off the
+  inside of the bike when leaning.
 - **Arms:** two-bone IK from the shoulders to the clip-ons, elbows low and out.
 - **Hands:** each glove is oriented along the grip axis with the knuckles on the top-front of the bar;
   every finger joint is solved so the next joint lands on a circle hugging the grip (grip radius +
@@ -80,8 +109,8 @@ by `scripts/rider_model.gd`, against contact points measured on the R1 mesh:
 - **Brake:** index and middle fingers lift off the grip onto the brake lever and pull it; the lever is
   cut out of the bike mesh at load time and pivots back towards the grip with brake pressure, and the
   fingers follow it. Gear shifts blip the left fingers on the (also pivoting) clutch lever.
-- **Legs:** IK to the footpegs, balls of the feet on the pegs, knees against the tank (inside knee out
-  when hanging off).
+- **Legs:** IK to the footpegs, balls of the feet on the pegs, heels up, knees forward along the tank
+  (inside knee out when hanging off). The hips sit just behind the pegs, as on a real sportbike.
 - **First person:** the helmet is hidden and anything within ~0.6 m of the camera is dithered away, so
   you see the rider's forearms and gloves on the bars.
 
@@ -127,9 +156,11 @@ Re-bake (needs the source glTFs from Poly Haven in a folder and a real renderer,
 
 ## Garage
 
-Cash earned from runs buys **Engine**, **Brakes** and **Handling** upgrades (5 levels each), and the
-bike can be repainted (the paint shader only recolours the blue livery, so decals stay intact).
-Test flags: `--cash=N`, `--paint=N`, `--menu --garage --shot=PATH`.
+Browse bikes with the arrows and buy the Kawasakis with cash from runs (ZX-6R $9,000, H2 $18,000).
+Cash also buys **Engine**, **Brakes** and **Handling** upgrades (5 levels each), and the bike can be
+repainted: Factory plus six colours (the paint shader only recolours the livery colour, so decals stay
+intact; the untextured H2 gets a solid metallic paint).
+Test flags: `--cash=N`, `--paint=N`, `--bike=r1|h2|zx6r`, `--menu --garage --shot=PATH`.
 
 ## Controls
 
@@ -152,8 +183,9 @@ scripts/
   game.gd        autoload: settings, save file, dev flags
   game_world.gd  gameplay scene: world setup, game loop, scoring, autopilot/test harness
   rider.gd       bike physics (road/Frenet coordinates), cameras, crash
-  bike_visual.gd loads the R1 glTF, splits the wheels so they spin, lean/brake light
-  rider_arms.gd  first-person arms + gloves;  rider_body.gd  full rider for chase cam/crash
+  bike_defs.gd   per-bike specs, part names and rider contact points
+  bike_visual.gd builds a bike: spinning wheels, pivoting levers, mirrors, dash, paint, lean/brake light
+  rider_model.gd procedural rider pose (IK) on the selected bike; first-person forearms
   road.gd        curvature/elevation program, road<->world mapping, chunk streaming, scenery
   props.gd       procedural trees, rocks, street lights, signs
   traffic.gd     traffic spawning, car-following, lane changes, near-miss/crash detection
@@ -189,7 +221,9 @@ Pass after `--` on the command line (read via `OS.get_cmdline_user_args()`):
 | `--touch` | on-screen steering buttons instead of tilt |
 | `--quality=0/1/2` | graphics quality |
 | `--photo` | close 3/4 camera riding alongside the bike (for screenshots) |
-| `--posetest=DIR` | (with `res://scenes/pose_test.tscn`) render rider pose review images |
+| `--posetest=DIR` | (with `res://scenes/pose_test.tscn`) render rider pose review images (`--views=a,b --states=cruise,brake` to limit) |
+| `--bike=r1\|h2\|zx6r` | ride / show that bike (index or id) |
+| `--rider=rpm` | use the older Ready Player Me rider instead of the biker |
 | `--audiotest` | render every procedural sound offline, check samples are finite, print peak/RMS |
 | `--bake-vegetation=DIR` | bake the tree impostor atlas (16 views, colour/normal/depth) from Poly Haven glTFs in DIR |
 | `--bake-grass=DIR` | bake the verge grass strip from Poly Haven grass_medium_02 in DIR |
@@ -239,7 +273,9 @@ tool on any other recording (e.g. a licensed Yamaha R1 recording) to swap the ba
 - Vegetation: fir_tree_01, fir_sapling, pine_sapling_small, tree_small_02, island_tree_02,
   searsia_lucida (baked to impostors), shrub_02, fern_02 (real meshes), grass_medium_02 (baked grass strip)
   from [Poly Haven](https://polyhaven.com/models), CC0.
-- Rider: the supplied "bike rider 3D" avatar (Ready Player Me based), posed procedurally.
+- Kawasaki Ninja H2, Kawasaki Ninja ZX-6R and the biker model: supplied by the project owner (the
+  files carry no author information; add the original authors' credits here if their licences ask).
+- Older rider: the supplied "bike rider 3D" avatar (Ready Player Me based), posed procedurally.
 - Engine sound: "S1000R Black Widow Exhaust Road Test" by Joe.L85 and "Large backfiring motorbike
   passes by." by mudflea2 (Freesound, CC0).
 - Skies: "Cloudy Skyboxes" by Screaming Brain Studios, CC0 (`assets/skies/`).

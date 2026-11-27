@@ -210,7 +210,8 @@ func set_paused(p: bool) -> void:
 func update(r: Rider, dt: float) -> void:
 	if _paused:
 		return
-	var rpm := r.rpm
+	# Every bike plays the recorded inline-4, mapped onto its own rev range and pitch character.
+	var rpm := r.rpm / r.REDLINE * 14000.0 * float(r.def.get("audio_rpm", 1.0))
 	var thr := r.throttle if not r.is_crashed else 0.0
 	if r.is_crashed:
 		rpm = lerpf(rpm, 1300.0, 0.0)

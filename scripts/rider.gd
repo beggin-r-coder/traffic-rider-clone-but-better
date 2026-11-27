@@ -7,14 +7,17 @@ signal crashed(reason: String)
 signal gear_changed(gear: int)
 
 const G := 9.81
-const MASS := 285.0               # bike + rider (kg)
-const POWER := 128000.0           # peak power at the wheel (W)
-const CDA := 0.29                 # drag area, tucked
-const REDLINE := 14000.0
-const IDLE_RPM := 1300.0
+# Performance comes from the selected bike (BikeDefs).
+var MASS := 285.0                 # bike + rider (kg)
+var POWER := 128000.0             # peak power at the wheel (W)
+var CDA := 0.29                   # drag area, tucked
+var REDLINE := 14000.0
+var IDLE_RPM := 1300.0
 # Speed (m/s) at redline in each gear.
-const GEAR_TOP := [41.0, 53.0, 62.0, 70.0, 77.5, 84.5]
-const MAX_LEAN := deg_to_rad(54.0)
+var GEAR_TOP: Array = [41.0, 53.0, 62.0, 70.0, 77.5, 84.5]
+var MAX_LEAN := deg_to_rad(54.0)
+var base_handling := 1.0
+var def: Dictionary = {}
 const BIKE_HALF_LEN := 1.02
 const BIKE_HALF_W := 0.36
 
@@ -81,7 +84,19 @@ var _thrown_vel := Vector3.ZERO
 var _thrown_spin := Vector3.ZERO
 
 func _ready() -> void:
+	if def.is_empty():
+		def = BikeDefs.current()
+	MASS = def["mass"]
+	POWER = def["power"]
+	CDA = def["cda"]
+	REDLINE = def["redline"]
+	IDLE_RPM = def["idle"]
+	GEAR_TOP = def["gear_top"]
+	MAX_LEAN = deg_to_rad(def["max_lean"])
+	base_handling = def["handling"]
+	rpm = IDLE_RPM
 	bike = BikeVisual.new()
+	bike.def = def
 	bike.name = "Bike"
 	add_child(bike)
 	camera = Camera3D.new()
@@ -95,6 +110,7 @@ func _ready() -> void:
 	bike.enable_mirrors.call_deferred(Game.quality > 0)
 	if SHOW_RIDER:
 		model = RiderModel.new()
+		model.def = def
 		model.name = "RiderModel"
 		bike.lean_node.add_child(model)
 
@@ -177,19 +193,19 @@ func _engine(dt: float) -> void:
 	# Clutch slip keeps revs up when pulling away in first.
 	var slip_rpm := 0.0
 	if gear == 1:
-		slip_rpm = lerpf(IDLE_RPM, 6500.0, throttle) * clampf(1.0 - v / 14.0, 0.0, 1.0)
+		slip_rpm = lerpf(IDLE_RPM, 6500.0 * REDLINE / 14000.0, throttle) * clampf(1.0 - v / 14.0, 0.0, 1.0)
 	var target_rpm := maxf(wheel_rpm, maxf(slip_rpm, IDLE_RPM))
 	rpm = lerpf(rpm, target_rpm, 1.0 - exp(-18.0 * dt))
 	# Auto gearbox.
 	if shift_timer > 0.0:
 		shift_timer -= dt
-	elif gear < 6 and rpm > 13300.0 and throttle > 0.1:
+	elif gear < 6 and rpm > REDLINE * 0.95 and throttle > 0.1:
 		gear += 1
 		shift_timer = 0.16
 		_clutch_t = 0.25
 		gear_changed.emit(gear)
 		_cam_shake = maxf(_cam_shake, 0.25)
-	elif gear > 1 and rpm < (6200.0 if throttle > 0.5 else 4800.0):
+	elif gear > 1 and rpm < (6200.0 if throttle > 0.5 else 4800.0) * REDLINE / 14000.0:
 		gear -= 1
 		shift_timer = 0.12
 		_clutch_t = 0.25

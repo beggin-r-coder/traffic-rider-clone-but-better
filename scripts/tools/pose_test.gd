@@ -32,6 +32,9 @@ func run(dir: String) -> void:
 	var pm := PlaneMesh.new()
 	pm.size = Vector2(20, 20)
 	floor_mi.mesh = pm
+	var fm := StandardMaterial3D.new()
+	fm.albedo_color = Color(0.45, 0.46, 0.48)
+	floor_mi.material_override = fm
 	add_child(floor_mi)
 	bike = BikeVisual.new()
 	add_child(bike)
@@ -45,48 +48,34 @@ func run(dir: String) -> void:
 		rider.brake = float(Game.flag("brakeval", "0"))
 		for i in 30:
 			rider.update_pose(1.0 / 30.0)
-		bike.set_levers(rider.lever_pull, rider.clutch_pull)
-		print("[posenum] lever pull ", rider.lever_pull, " brake lever node ", bike.brake_lever, " clutch ", bike.clutch_lever)
-		var b: Dictionary = rider._b
-		var sk := rider.skel
-		var gt := func(n: String) -> Vector3:
-			var v: Vector3 = sk.get_bone_global_pose(b[n]).origin
+		var sd: Dictionary = rider._side[1.0]
+		var bk := func(i: int) -> Vector3:
+			var v: Vector3 = rider._g[i].origin
 			return Vector3(-v.x, v.y, -v.z).snapped(Vector3.ONE * 0.001)
-		for n in ["Hips", "Spine2", "Head", "RightArm", "RightForeArm", "RightHand", "RightHandMiddle1", "RightHandIndex1", "RightHandPinky1", "RightHandIndex4", "RightUpLeg", "RightLeg", "RightFoot", "RightToeBase"]:
-			print("[posenum] ", n, " ", gt.call(n), " solver=", (func(): var v: Vector3 = rider._g[b[n]].origin; return Vector3(-v.x, v.y, -v.z).snapped(Vector3.ONE * 0.001)).call())
-		var gi := RiderModel.GRIP_IN
-		var go := RiderModel.GRIP_OUT
+		for k in ["arm", "fore", "hand", "upleg", "leg", "foot"]:
+			print("[posenum] ", k, " ", bk.call(sd[k]))
+		var g := rider.GRIP_IN.lerp(rider.GRIP_OUT, 0.48)
+		print("[posenum] grip centre ", g, " knuckle ", Vector3(-rider._knuckle(sd).x, rider._knuckle(sd).y, -rider._knuckle(sd).z))
+		var toe: Vector3 = rider._toe_pt(sd)
+		print("[posenum] fpcam ", rider.fp_camera_position())
+		print("[posenum] peg ", rider.PEG, " toe ", Vector3(-toe.x, toe.y, -toe.z), " pitch_extra ", rad_to_deg(rider._pitch_extra))
+		var gi: Vector3 = RiderModel._sk(rider.GRIP_IN)
+		var go: Vector3 = RiderModel._sk(rider.GRIP_OUT)
 		var ax := (go - gi).normalized()
 		var c := gi.lerp(go, 0.48)
 		var top := (Vector3.UP - ax * Vector3.UP.dot(ax)).normalized()
-		var fr := top.cross(ax)
-		if fr.z > 0:
-			fr = -fr
-		for f in ["Index", "Middle", "Ring", "Pinky", "Thumb"]:
+		for chain: Array in sd["fingers"] + [sd["thumb"]]:
 			var line := ""
-			for j in range(1, 5):
-				var p: Vector3 = gt.call("RightHand" + f + str(j)) - c
-				line += " %d:(a%+.3f u%+.3f f%+.3f r%.3f)" % [j, p.dot(ax), p.dot(top), p.dot(fr), Vector2(p.dot(top), p.dot(fr)).length()]
-			print("[posenum] ", f, line)
-		var lbs := BikeVisual.lever_basis(1.0, rider.lever_pull)
-		var lpv := BikeVisual.lever_pivot(1.0)
-		var la := lpv + lbs * (RiderModel.LEVER_IN - lpv)
-		var lb := lpv + lbs * (RiderModel.LEVER_OUT - lpv)
-		for f in ["Index", "Middle"]:
-			for j in [3, 4]:
-				var p: Vector3 = gt.call("RightHand" + f + str(j))
-				var t := clampf((p - la).dot(lb - la) / (lb - la).length_squared(), 0.0, 1.0)
-				var cl := la.lerp(lb, t)
-				print("[posenum] %s%d dist to lever %.3f (t=%.2f) offset %s" % [f, j, p.distance_to(cl), t, (p - cl).snapped(Vector3.ONE * 0.001)])
-		var wp: Vector3 = gt.call("RightHand") - c
-		print("[posenum] wrist a%+.3f u%+.3f f%+.3f" % [wp.dot(ax), wp.dot(top), wp.dot(fr)])
-		print("[posenum] chin ", rider.chin_cam_position(), " eye ", rider.eye_position(), " skel parent xf ", sk.get_parent().transform.origin, " ", sk.transform.origin)
+			for j in rider._chain_len(chain):
+				var q: Vector3 = rider._chain_pt(chain, j) - c
+				line += " %d:(a%+.3f u%+.3f r%.3f)" % [j, q.dot(ax), q.dot(top), (q - ax * q.dot(ax)).length()]
+			print("[posenum] chain", line)
 		get_tree().quit()
 		return
 	if Game.has_flag("markers"):
 		rider.visible = false
-		var pts := [RiderModel.GRIP_IN, RiderModel.GRIP_OUT, RiderModel.GRIP_IN.lerp(RiderModel.GRIP_OUT, 0.5)]
-		var cols := [Color.RED, Color.GREEN, Color.YELLOW]
+		var pts := [rider.GRIP_IN, rider.GRIP_OUT, rider.LEVER_IN, rider.LEVER_OUT, rider.PEG, rider.SEAT]
+		var cols := [Color.RED, Color.GREEN, Color.YELLOW, Color.ORANGE, Color.CYAN, Color.MAGENTA]
 		for i in pts.size():
 			var sp := MeshInstance3D.new()
 			var sm := SphereMesh.new()
@@ -100,10 +89,12 @@ func run(dir: String) -> void:
 			sp.material_override = mat
 			sp.position = pts[i]
 			bike.lean_node.add_child(sp)
+		var gc: Vector3 = rider.GRIP_IN.lerp(rider.GRIP_OUT, 0.5)
 		var mviews := {
-			"m_top": [Vector3(0.3, 1.6, -0.48), Vector3(0.3, 0.9, -0.48), Vector3.FORWARD, 30.0],
-			"m_side": [Vector3(1.2, 0.93, -0.48), Vector3(0.3, 0.93, -0.48), Vector3.UP, 20.0],
-			"m_front": [Vector3(0.3, 0.95, -1.4), Vector3(0.3, 0.93, -0.48), Vector3.UP, 16.0],
+			"m_top": [gc + Vector3(0, 0.7, -0.05), gc + Vector3(0, 0, -0.05), Vector3.FORWARD, 30.0],
+			"m_side": [gc + Vector3(0.9, 0, -0.05), gc + Vector3(0, 0, -0.05), Vector3.UP, 20.0],
+			"m_front": [gc + Vector3(0, 0.02, -0.95), gc + Vector3(0, 0, -0.05), Vector3.UP, 16.0],
+			"m_feet": [rider.PEG + Vector3(1.0, 0.25, 0.0), rider.PEG, Vector3.UP, 30.0],
 		}
 		for vn in mviews:
 			var v: Array = mviews[vn]
@@ -120,19 +111,23 @@ func run(dir: String) -> void:
 		"brake": [0.0, 1.0, 0.0, 30.0],
 		"lean": [0.6, 0.0, 0.6, 40.0],
 	}
+	var gc: Vector3 = rider.GRIP_IN.lerp(rider.GRIP_OUT, 0.5)
+	var pg: Vector3 = rider.PEG
 	var views := {
 		"side": [Vector3(3.2, 1.1, -0.1), Vector3(0, 0.8, -0.1), 40.0],
 		"sideclose": [Vector3(2.2, 1.15, 0.0), Vector3(0, 0.95, -0.05), 32.0],
 		"rear34": [Vector3(1.6, 1.6, 2.2), Vector3(0, 1.0, 0.0), 36.0],
 		"front": [Vector3(0.0, 1.2, -3.0), Vector3(0, 1.0, 0.0), 30.0],
-		"feet_r": [Vector3(1.0, 0.55, 0.32), Vector3(0.24, 0.48, 0.36), 30.0],
-		"feet_rear": [Vector3(0.7, 0.75, 1.3), Vector3(0.22, 0.48, 0.36), 30.0],
-		"dash": [Vector3(0.0, 1.3, -0.25), Vector3(0.0, 1.03, -0.625), 40.0],
+		"feet_r": [pg + Vector3(0.75, 0.1, -0.02), pg + Vector3(0, 0.03, 0.02), 30.0],
+		"feet_rear": [pg + Vector3(0.45, 0.3, 0.95), pg + Vector3(-0.02, 0.03, 0.02), 30.0],
+		"dash": [Vector3(0.0, gc.y + 0.34, -0.25), Vector3(0.0, gc.y + 0.07, -0.625), 40.0],
 		"front34": [Vector3(1.8, 1.5, -2.6), Vector3(0, 0.9, -0.2), 40.0],
-		"hand_r": [Vector3(0.75, 1.15, -0.75), Vector3(0.29, 0.94, -0.42), 30.0],
-		"hand_top": [Vector3(0.29, 1.45, -0.42), Vector3(0.29, 0.94, -0.42), 30.0],
-		"hand_l": [Vector3(-0.75, 1.15, -0.75), Vector3(-0.29, 0.94, -0.42), 30.0],
-		"hand_under": [Vector3(0.55, 0.78, -0.75), Vector3(0.29, 0.94, -0.42), 28.0],
+		"hand_r": [gc + Vector3(0.46, 0.21, -0.35), gc, 30.0],
+		"hand_top": [gc + Vector3(0, 0.51, 0.0), gc, 30.0],
+		"hand_l": [gc * Vector3(-1, 1, 1) + Vector3(-0.46, 0.21, -0.35), gc * Vector3(-1, 1, 1), 30.0],
+		"hand_under": [gc + Vector3(0.26, -0.16, -0.35), gc, 28.0],
+		"legs": [Vector3(1.9, 0.7, 0.05), Vector3(0.0, 0.68, 0.05), 32.0],
+		"legs_top": [Vector3(0.0, 2.3, 0.15), Vector3(0.0, 0.7, 0.1), 34.0],
 	}
 	for st in states:
 		var s: Array = states[st]
@@ -146,7 +141,13 @@ func run(dir: String) -> void:
 		bike.set_levers(rider.lever_pull, rider.clutch_pull)
 		if bike.dash:
 			bike.dash.set_values(s[3] * 3.6, 6000.0 + s[0] * 7200.0, 3)
+		var only: Array = String(Game.flag("views", "")).split(",", false)
+		var only_states: Array = String(Game.flag("states", "")).split(",", false)
+		if not only_states.is_empty() and not st in only_states:
+			continue
 		for vn in views:
+			if not only.is_empty() and not vn in only:
+				continue
 			if st != "cruise" and (vn.begins_with("feet") or vn == "dash"):
 				continue
 			if st == "lean" and vn.begins_with("hand"):
@@ -161,6 +162,8 @@ func run(dir: String) -> void:
 			await RenderingServer.frame_post_draw
 			get_viewport().get_texture().get_image().save_png("%s/%s_%s.png" % [dir, st, vn])
 		# first person
+		if not only.is_empty() and not "fp" in only:
+			continue
 		rider.set_first_person(true)
 		for variant in [[rider.fp_camera_position(), -11.0, "a"]]:
 			var eye: Vector3 = bike.lean_node.global_transform * variant[0]
