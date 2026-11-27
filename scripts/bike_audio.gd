@@ -1,6 +1,7 @@
 extends Node
 class_name BikeAudio
-## Procedurally synthesised audio: crossplane inline-4 engine loops (cross-faded and pitched by RPM),
+## Engine: real recorded inline-four loops (on/off throttle) + exhaust pops when available, else
+## procedurally synthesised crossplane inline-4 loops (cross-faded and pitched by RPM). Also:
 ## wind, tyre roar, rail scrape and one-shots (horn, whoosh, crash, shift, bonus).
 
 const SR := 22050
@@ -8,6 +9,19 @@ const SR := 22050
 const ENGINE_RPMS := [1300.0, 3200.0, 5500.0, 8000.0, 10500.0, 13000.0, 15000.0]
 
 var engine_players: Array[AudioStreamPlayer] = []
+# Real recorded engine (assets/audio/engine_real, built by tools/build_engine_bank.py)
+const REAL_BANK := "res://assets/audio/engine_real/"
+var real_engine := false
+var on_rpms: Array[float] = []
+var off_rpms: Array[float] = []
+var on_players: Array[AudioStreamPlayer] = []
+var off_players: Array[AudioStreamPlayer] = []
+var pop_streams: Array[AudioStream] = []
+var pop_players: Array[AudioStreamPlayer] = []
+var _crackle_t := 0.0
+var _crackle_next := 0.0
+var _prev_thr := 0.0
+var _pending_pops: Array = []     # [time_left, volume_db]
 var wind: AudioStreamPlayer
 var roar: AudioStreamPlayer
 var scrape: AudioStreamPlayer
@@ -43,14 +57,16 @@ func _ready() -> void:
 	_lp_wind.cutoff_hz = 800.0
 	AudioServer.add_bus_effect(_wind_bus, _lp_wind)
 	AudioServer.set_bus_volume_db(0, linear_to_db(maxf(Game.sfx_volume, 0.001)))
-	for r in ENGINE_RPMS:
-		var p := AudioStreamPlayer.new()
-		p.stream = engine_stream(r, rng)
-		p.bus = "Engine"
-		p.volume_db = -80.0
-		add_child(p)
-		p.play()
-		engine_players.append(p)
+	real_engine = _load_real_bank() and not Game.has_flag("synth-engine")
+	if not real_engine:
+		for r in ENGINE_RPMS:
+			var p := AudioStreamPlayer.new()
+			p.stream = engine_stream(r, rng)
+			p.bus = "Engine"
+			p.volume_db = -80.0
+			add_child(p)
+			p.play()
+			engine_players.append(p)
 	wind = _loop_player(render_noise(2.0, 0.0, 1.0), "Wind")
 	roar = _loop_player(render_noise(1.5, 0.92, 0.6), "Master")
 	scrape = _loop_player(render_scrape(), "Master")
@@ -64,6 +80,104 @@ func _ready() -> void:
 		var o := AudioStreamPlayer.new()
 		add_child(o)
 		oneshots.append(o)
+
+func _load_real_bank() -> bool:
+	var f := FileAccess.open(REAL_BANK + "bank.json", FileAccess.READ)
+	if f == null:
+		return false
+	var bank: Dictionary = JSON.parse_string(f.get_as_text())
+	for mode in ["on", "off"]:
+		for e in bank[mode]:
+			var st: AudioStream = load(REAL_BANK + String(e["file"]))
+			if st == null:
+				continue
+			var p := AudioStreamPlayer.new()
+			p.stream = st
+			p.bus = "Engine"
+			p.volume_db = -80.0
+			add_child(p)
+			p.play()
+			if mode == "on":
+				on_players.append(p)
+				on_rpms.append(float(e["rpm"]))
+			else:
+				off_players.append(p)
+				off_rpms.append(float(e["rpm"]))
+	for e in bank["pops"]:
+		var ps: AudioStream = load(REAL_BANK + String(e["file"]))
+		if ps:
+			pop_streams.append(ps)
+	for i in 6:
+		var pp := AudioStreamPlayer.new()
+		pp.bus = "Master"
+		add_child(pp)
+		pop_players.append(pp)
+	return on_players.size() >= 3
+
+## Crossfade a set of RPM loops: the two loops bracketing `rpm` play, pitched to match exactly.
+func _mix_set(players: Array[AudioStreamPlayer], rpms: Array[float], rpm: float, gain_db: float, weight: float) -> void:
+	var n := rpms.size()
+	if n == 0:
+		return
+	var i := 0
+	while i < n - 2 and rpm > rpms[i + 1]:
+		i += 1
+	var x := clampf((rpm - rpms[i]) / maxf(rpms[mini(i + 1, n - 1)] - rpms[i], 1.0), 0.0, 1.0)
+	for k in n:
+		var g := 0.0
+		if k == i:
+			g = cos(x * PI * 0.5)
+		elif k == i + 1:
+			g = sin(x * PI * 0.5)
+		g *= weight
+		players[k].volume_db = -80.0 if g < 0.001 else linear_to_db(g) + gain_db
+		players[k].pitch_scale = clampf(rpm / rpms[k], 0.5, 2.0)
+
+func pop(vol_db: float = 0.0, delay: float = 0.0) -> void:
+	if pop_streams.is_empty():
+		return
+	if delay > 0.0:
+		_pending_pops.append([delay, vol_db])
+		return
+	for pp in pop_players:
+		if not pp.playing:
+			pp.stream = pop_streams[rng.randi() % pop_streams.size()]
+			pp.volume_db = vol_db + rng.randf_range(-3.0, 1.5)
+			pp.pitch_scale = rng.randf_range(0.85, 1.15)
+			pp.play()
+			return
+
+func _update_real(r: Rider, rpm: float, dt: float) -> void:
+	var load_db := lerpf(-6.0, 0.0, _throttle_s)
+	if r.is_crashed:
+		load_db = -14.0 - r.crash_time * 6.0
+	# Off-throttle (overrun) loops take over when rolling off above ~2500 rpm.
+	var off_w := (1.0 - _throttle_s) * smoothstep(2200.0, 3600.0, rpm)
+	if r.is_crashed:
+		off_w = 0.0
+	var on_w := sqrt(maxf(1.0 - off_w * off_w, 0.0))
+	_mix_set(on_players, on_rpms, rpm, load_db - 2.0, on_w)
+	_mix_set(off_players, off_rpms, rpm, load_db - 3.0, off_w)
+	# --- pops & crackles ---
+	for i in range(_pending_pops.size() - 1, -1, -1):
+		_pending_pops[i][0] -= dt
+		if _pending_pops[i][0] <= 0.0:
+			var v: float = _pending_pops[i][1]
+			_pending_pops.remove_at(i)
+			pop(v)
+	# Snapping the throttle shut from high revs: a burst of overrun crackle.
+	if _prev_thr > 0.6 and r.throttle < 0.15 and rpm > 5500.0 and not r.is_crashed:
+		_crackle_t = rng.randf_range(0.7, 1.4)
+		_crackle_next = 0.04
+	_prev_thr = r.throttle
+	if _crackle_t > 0.0:
+		_crackle_t -= dt
+		_crackle_next -= dt
+		if _crackle_next <= 0.0 and rpm > 3500.0:
+			pop(lerpf(-14.0, -3.0, clampf(_crackle_t, 0.0, 1.0)))
+			_crackle_next = rng.randf_range(0.05, 0.22)
+	elif r.throttle < 0.1 and rpm > 6500.0 and rng.randf() < dt * 0.8:
+		pop(-12.0)          # occasional pop while decelerating
 
 func _make_bus(n: String) -> int:
 	var idx := AudioServer.get_bus_index(n)
@@ -101,14 +215,18 @@ func update(r: Rider, dt: float) -> void:
 	if r.is_crashed:
 		rpm = lerpf(rpm, 1300.0, 0.0)
 	_throttle_s = lerpf(_throttle_s, thr, 1.0 - exp(-12.0 * dt))
+	if real_engine:
+		_update_real(r, rpm, dt)
 	# Cross-fade between the two loops bracketing the current RPM and pitch them to match.
-	var n := ENGINE_RPMS.size()
+	var n := ENGINE_RPMS.size() if not real_engine else 0
 	var i := 0
 	while i < n - 2 and rpm > ENGINE_RPMS[i + 1]:
 		i += 1
 	var r0: float = ENGINE_RPMS[i]
 	var r1: float = ENGINE_RPMS[i + 1]
 	var x := clampf((rpm - r0) / (r1 - r0), 0.0, 1.0)
+	if real_engine:
+		n = 0
 	var load_db := lerpf(-9.0, 0.0, _throttle_s)
 	if r.is_crashed:
 		load_db = -14.0 - r.crash_time * 6.0
@@ -124,7 +242,7 @@ func update(r: Rider, dt: float) -> void:
 		else:
 			p.volume_db = linear_to_db(g) + load_db - 4.0
 		p.pitch_scale = clampf(rpm / ENGINE_RPMS[k], 0.5, 2.0)
-	_lp_engine.cutoff_hz = lerpf(1400.0, 7000.0, _throttle_s) + rpm * 0.15
+	_lp_engine.cutoff_hz = (lerpf(1400.0, 7000.0, _throttle_s) + rpm * 0.15) if not real_engine else lerpf(5000.0, 16000.0, _throttle_s)
 	var sp := r.v
 	wind.volume_db = linear_to_db(clampf(sp / 85.0, 0.0, 1.0) * 0.9 + 0.001) - 3.0
 	wind.pitch_scale = 0.8 + sp / 120.0
@@ -159,8 +277,17 @@ func play_whoosh(speed: float) -> void:
 func play_crash() -> void:
 	_play(_crash, 0.0)
 
-func on_shift(_gear: int) -> void:
-	_play(_shift, -10.0, rng.randf_range(0.95, 1.05))
+var _last_gear := 1
+func on_shift(gear: int) -> void:
+	_play(_shift, -12.0, rng.randf_range(0.95, 1.05))
+	# Quickshifter ignition cut on upshifts at high revs: the unburnt fuel pops in the exhaust.
+	if real_engine and gear > _last_gear:
+		pop(-2.0, 0.02)
+		if rng.randf() < 0.6:
+			pop(-6.0, rng.randf_range(0.07, 0.13))
+	elif real_engine and gear < _last_gear and rng.randf() < 0.5:
+		pop(-8.0, 0.05)          # auto-blip on downshift
+	_last_gear = gear
 
 func play_bonus() -> void:
 	_play(_bonus, -6.0)

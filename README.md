@@ -214,6 +214,22 @@ xvfb-run -a -s "-screen 0 1280x720x24" godot --path . --rendering-method mobile 
 3. Export, install, and **calibrate**: tilt steering takes the phone's position at the start of a
    run (and when resuming from pause) as neutral.
 
+## Engine sound
+
+The engine is built from a **real recording**: a BMW S1000R inline-four with an aftermarket exhaust
+(CC0, Freesound), processed by `tools/build_engine_bank.py`:
+- tracks the engine's firing frequency through the whole recording (RPM over time),
+- picks on-throttle and off-throttle stretches near each target RPM and **time-warps** them so the
+  note sits exactly on that RPM, then crossfades them into seamless loops (verified: every loop
+  measures within 1% of its target),
+- cuts real exhaust pops/backfires out of the recordings.
+
+In game the loops crossfade by RPM and throttle, with **pops** on quickshifter upshifts, blips on
+downshifts and a burst of **overrun crackle** when you snap the throttle shut at high revs. Re-run the
+tool on any other recording (e.g. a licensed Yamaha R1 recording) to swap the bank:
+`python3 tools/build_engine_bank.py ride.wav assets/audio/engine_real extra_pops.wav`
+(`--synth-engine` falls back to the old procedural engine.) Demo: `docs/engine_sound_demo.mp3`.
+
 ## Credits
 
 - Motorcycle model: "2022 Yamaha R1" by Hari on Sketchfab, Sketchfab Standard license
@@ -224,5 +240,7 @@ xvfb-run -a -s "-screen 0 1280x720x24" godot --path . --rendering-method mobile 
   searsia_lucida (baked to impostors), shrub_02, fern_02 (real meshes), grass_medium_02 (baked grass strip)
   from [Poly Haven](https://polyhaven.com/models), CC0.
 - Rider: the supplied "bike rider 3D" avatar (Ready Player Me based), posed procedurally.
+- Engine sound: "S1000R Black Widow Exhaust Road Test" by Joe.L85 and "Large backfiring motorbike
+  passes by." by mudflea2 (Freesound, CC0).
 - Skies: "Cloudy Skyboxes" by Screaming Brain Studios, CC0 (`assets/skies/`).
 - Everything else (lane markings, scenery, cars, audio, UI) is procedural.

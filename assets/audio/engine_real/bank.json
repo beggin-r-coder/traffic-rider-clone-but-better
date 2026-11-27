@@ -1,0 +1,104 @@
+{
+ "source": "s1000_44.wav",
+ "on": [
+  {
+   "rpm": 1500,
+   "file": "on_01500.wav",
+   "src_t": 185.16
+  },
+  {
+   "rpm": 2200,
+   "file": "on_02200.wav",
+   "src_t": 192.77
+  },
+  {
+   "rpm": 3000,
+   "file": "on_03000.wav",
+   "src_t": 205.91
+  },
+  {
+   "rpm": 3800,
+   "file": "on_03800.wav",
+   "src_t": 6.59
+  },
+  {
+   "rpm": 4600,
+   "file": "on_04600.wav",
+   "src_t": 56.89
+  },
+  {
+   "rpm": 5500,
+   "file": "on_05500.wav",
+   "src_t": 19.55
+  },
+  {
+   "rpm": 6500,
+   "file": "on_06500.wav",
+   "src_t": 20.57
+  },
+  {
+   "rpm": 7500,
+   "file": "on_07500.wav",
+   "src_t": 7.89
+  },
+  {
+   "rpm": 8500,
+   "file": "on_08500.wav",
+   "src_t": 55.87
+  },
+  {
+   "rpm": 9500,
+   "file": "on_09500.wav",
+   "src_t": 54.85
+  }
+ ],
+ "off": [
+  {
+   "rpm": 2000,
+   "file": "off_02000.wav",
+   "src_t": 187.66
+  },
+  {
+   "rpm": 3200,
+   "file": "off_03200.wav",
+   "src_t": 212.28
+  },
+  {
+   "rpm": 4500,
+   "file": "off_04500.wav",
+   "src_t": 57.12
+  },
+  {
+   "rpm": 6000,
+   "file": "off_06000.wav",
+   "src_t": 8.36
+  },
+  {
+   "rpm": 7500,
+   "file": "off_07500.wav",
+   "src_t": 20.71
+  }
+ ],
+ "pops": [
+  {
+   "file": "pop_00.wav",
+   "crest": 4.16
+  },
+  {
+   "file": "pop_01.wav",
+   "crest": 3.99
+  },
+  {
+   "file": "pop_02.wav",
+   "crest": 3.8
+  },
+  {
+   "file": "pop_03.wav",
+   "crest": 3.56
+  }
+ ],
+ "rpm_range": [
+  1170.0,
+  7620.0
+ ]
+}

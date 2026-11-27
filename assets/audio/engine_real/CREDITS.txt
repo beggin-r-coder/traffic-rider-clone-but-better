@@ -1,0 +1,4 @@
+Engine loops and pops in this folder were built with tools/build_engine_bank.py from:
+- "S1000R Black Widow Exhaust Road Test" by Joe.L85 — https://freesound.org/s/578059/ — CC0 1.0
+  (BMW S1000R inline-four with aftermarket exhaust; on/off-throttle loops and pops)
+- "Large backfiring motorbike passes by." by mudflea2 — https://freesound.org/s/705363/ — CC0 1.0 (pops)
