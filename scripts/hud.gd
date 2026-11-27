@@ -26,6 +26,7 @@ var _msg_t := 0.0
 var _touches := {}      # index -> zone name
 var _tilt_neutral := 0.0
 var _tilt_smooth := 0.0
+var _btn_steer := 0.0
 var _font: Font
 var speed_fx: ColorRect
 
@@ -236,12 +237,19 @@ func _raw_tilt() -> float:
 
 func steer_input() -> float:
 	if Game.steering == Game.Steering.TOUCH:
-		var st := 0.0
+		var target := 0.0
 		if _held("left"):
-			st -= 1.0
+			target -= 1.0
 		if _held("right"):
-			st += 1.0
-		return st
+			target += 1.0
+		# Button sensitivity: how far the bike leans and how quickly the input builds up.
+		var sens := clampf(Game.button_sensitivity, 0.2, 2.0)
+		target *= clampf(0.45 + 0.55 * sens, 0.3, 1.0)
+		var rate := 2.5 + 3.5 * sens
+		if target == 0.0:
+			rate *= 2.0   # let go: recentre quickly
+		_btn_steer = move_toward(_btn_steer, target, rate * get_process_delta_time())
+		return _btn_steer
 	var t := _raw_tilt() - _tilt_neutral
 	var full := deg_to_rad(24.0) / maxf(Game.tilt_sensitivity, 0.2)
 	var dead := deg_to_rad(1.5)
@@ -381,16 +389,28 @@ func toggle_pause() -> void:
 	pause_panel = m[0]
 	var v: VBoxContainer = m[2]
 	_button(v, "Resume", toggle_pause, true)
-	var view_btn := _button(v, "", func(): pass)
-	var update_view := func():
-		view_btn.text = "View: " + ("First Person" if Game.view == Game.View.FIRST_PERSON else "Chase Cam")
-	update_view.call()
-	var toggle_view := func():
-		Game.view = Game.View.CHASE if Game.view == Game.View.FIRST_PERSON else Game.View.FIRST_PERSON
-		world.rider.set_view(Game.view)
-		Game.save()
-		update_view.call()
-	view_btn.pressed.connect(toggle_view)
+	v.add_child(_label("COCKPIT VIEW", 18, Color(1, 1, 1, 0.6)))
+	var pg := GridContainer.new()
+	pg.columns = 2
+	pg.add_theme_constant_override("h_separation", 20)
+	v.add_child(pg)
+	for row in [["Height", -0.12, 0.15, "cam_height"], ["Forward", -0.15, 0.15, "cam_forward"],
+			["Field of view", 45.0, 85.0, "cam_fov"], ["Look down", -22.0, -2.0, "cam_pitch"]]:
+		pg.add_child(_label(row[0], 22, Color(0.85, 0.88, 0.95)))
+		var sl := HSlider.new()
+		sl.min_value = row[1]
+		sl.max_value = row[2]
+		sl.step = (row[2] - row[1]) / 60.0
+		sl.value = Game.get(row[3])
+		sl.custom_minimum_size = Vector2(240, 44)
+		var key: String = row[3]
+		var cb := func(x: float):
+			Game.set(key, x)
+			Game.save()
+		sl.value_changed.connect(cb)
+		pg.add_child(sl)
+	# Live preview while paused: keep the camera updating.
+	world.rider.update_visuals(0.0)
 	_button(v, "Restart", func(): world.restart())
 	_button(v, "Main Menu", func(): world.quit_to_menu())
 	_center(m[1])

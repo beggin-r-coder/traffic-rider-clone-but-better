@@ -15,6 +15,12 @@ const TIME_NAMES := ["Day", "Sunset", "Night", "Cloudy"]
 var steering: int = Steering.TILT
 var view: int = View.FIRST_PERSON
 var tilt_sensitivity: float = 1.0
+var button_sensitivity: float = 1.0   # on-screen steering buttons: how hard/fast they steer
+# Cockpit camera (POV) adjustments
+var cam_height: float = 0.0           # metres, + = higher
+var cam_forward: float = 0.0          # metres, + = closer to the bars
+var cam_fov: float = 60.0             # degrees
+var cam_pitch: float = -11.0          # degrees, negative = looking down
 var assist: bool = true            # steering assist: auto-lean through road curves
 var sfx_volume: float = 0.9
 var quality: int = 1               # 0 low, 1 medium, 2 high
@@ -62,6 +68,7 @@ func _ready() -> void:
 		time_of_day = maxi(0, ["day", "sunset", "night", "cloudy"].find(t))
 	if has_flag("rain"):
 		rain = str(flag("rain", "1")) not in ["0", "false"]
+	view = View.FIRST_PERSON   # chase cam disabled for now (dev flag --view=chase still works)
 	if has_flag("view"):
 		view = View.CHASE if flag("view", "fp") == "chase" else View.FIRST_PERSON
 	if has_flag("touch"):
@@ -149,6 +156,11 @@ func save() -> void:
 	c.set_value("settings", "steering", steering)
 	c.set_value("settings", "view", view)
 	c.set_value("settings", "tilt_sensitivity", tilt_sensitivity)
+	c.set_value("settings", "cam_pitch", cam_pitch)
+	c.set_value("settings", "cam_fov", cam_fov)
+	c.set_value("settings", "cam_forward", cam_forward)
+	c.set_value("settings", "cam_height", cam_height)
+	c.set_value("settings", "button_sensitivity", button_sensitivity)
 	c.set_value("settings", "assist", assist)
 	c.set_value("settings", "sfx_volume", sfx_volume)
 	c.set_value("settings", "quality", quality)
@@ -169,6 +181,11 @@ func load_save() -> void:
 	steering = c.get_value("settings", "steering", steering)
 	view = c.get_value("settings", "view", view)
 	tilt_sensitivity = c.get_value("settings", "tilt_sensitivity", tilt_sensitivity)
+	cam_pitch = c.get_value("settings", "cam_pitch", cam_pitch)
+	cam_fov = c.get_value("settings", "cam_fov", cam_fov)
+	cam_forward = c.get_value("settings", "cam_forward", cam_forward)
+	cam_height = c.get_value("settings", "cam_height", cam_height)
+	button_sensitivity = c.get_value("settings", "button_sensitivity", button_sensitivity)
 	assist = c.get_value("settings", "assist", assist)
 	sfx_volume = c.get_value("settings", "sfx_volume", sfx_volume)
 	quality = c.get_value("settings", "quality", quality)

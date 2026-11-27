@@ -155,7 +155,7 @@ func _spawn(kind: String, s: float, d: float, dir: int, player_s: float = 0.0) -
 	c.node.add_child(c.mesh)
 	if lights_on:
 		_add_light_flares(c, kind)
-	if night and _glow_mesh:
+	if false and night and _glow_mesh:   # flat headlight 'beam' decals removed (looked like rectangles)
 		var gl := MeshInstance3D.new()
 		gl.mesh = _glow_mesh
 		gl.material_override = _glow_mat
@@ -181,9 +181,9 @@ func _add_light_flares(c: Car, kind: String) -> void:
 	if _flare_quad == null:
 		_flare_quad = QuadMesh.new()
 		_flare_quad.size = Vector2(1, 1)
-		_flare_head = _flare_mat(Color(1.0, 0.93, 0.8), 2.0, 0.5, 0.22)
-		_flare_tail = _flare_mat(Color(1.0, 0.08, 0.04), 1.2, 0.32, 0.2)
-		_flare_brake = _flare_mat(Color(1.0, 0.07, 0.03), 2.6, 0.48, 0.3)
+		_flare_head = _flare_mat(Color(1.0, 0.94, 0.84), 1.5, 0.32, 0.1)
+		_flare_tail = _flare_mat(Color(1.0, 0.1, 0.05), 0.9, 0.2, 0.08)
+		_flare_brake = _flare_mat(Color(1.0, 0.08, 0.04), 1.8, 0.3, 0.12)
 	var truck := kind == "truck"
 	var hx := c.width * 0.5 - (0.35 if truck else 0.28)
 	var hy := 0.85 if truck else 0.7

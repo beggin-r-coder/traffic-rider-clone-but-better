@@ -117,49 +117,58 @@ void fragment() {
 
 	if (wetness > 0.001) {
 		// --- wet road ---
-		// Standing water: low-frequency patches, deeper in the worn tyre ruts and at the edges.
-		float wet_noise = texture(noise_tex, vec2(d, s) * 0.06 + 0.13).r;
-		float pud = smoothstep(0.55, 0.68, wet_noise * 0.75 + n_big * 0.45 + tracks * 0.22 + shoulder * 0.1);
-		pud *= puddles;
-		// Soaked asphalt is much darker; paint darkens less.
-		col *= mix(1.0, mix(0.42, 0.75, marked), wetness);
-		col = mix(col, col * 0.6, pud);
-		rough = mix(rough, mix(0.18, 0.08, marked), wetness);
-		rough = mix(rough, 0.015, pud);
-		// Rain ripples everywhere (strong in puddles), aggregate bumps drown under water.
-		vec2 rip = ripples(vec2(d, s), TIME) * mix(0.35, 1.0, pud) * wetness;
-		nmap = mix(nmap, vec3(0.5, 0.5, 1.0), pud * 0.9);
-		nmap.xy += rip * 0.5;
-		spec = mix(0.5, 0.7, pud);
+		// Puddles: organic shapes from domain-warped noise, soft edges, slightly more likely in the
+		// worn wheel paths (smooth, noise-broken, so they never form straight bands).
+		vec2 pp = vec2(d, s);
+		vec2 warp = vec2(texture(noise_tex, pp * 0.021 + 0.31).r, texture(noise_tex, pp * 0.021 + 0.73).r) - 0.5;
+		float pn = texture(noise_tex, pp * 0.045 + warp * 0.9).r;
+		float pn2 = texture(noise_tex, pp * 0.13 + warp * 0.4 + 0.5).r;
+		float lane_c = fract((d + half_w) / lane_w);
+		float ruts = exp(-pow((lane_c - 0.3) * 9.0, 2.0)) + exp(-pow((lane_c - 0.7) * 9.0, 2.0));
+		float pud_field = pn * 0.75 + pn2 * 0.25 + ruts * 0.08 * pn2 + shoulder * 0.08;
+		float pud = smoothstep(0.6, 0.7, pud_field) * puddles * step(ad, half_w + 1.6);
+		// Water film: soaked asphalt is darker and smoother but still rough enough to blur
+		// reflections (that's what makes wet roads look wet, not mirrored).
+		float film = texture(noise_tex, pp * 0.35 + 0.17).r;
+		col *= mix(1.0, mix(0.5, 0.8, marked), wetness);
+		col = mix(col, col * 0.55, pud);
+		float wet_rough = mix(0.32, 0.18, smoothstep(0.3, 0.8, film));
+		rough = mix(rough, mix(wet_rough, 0.22, marked), wetness);
+		rough = mix(rough, 0.04, pud);
+		// Rain ripples: faint on the film, clear in puddles. The aggregate drowns in puddles only.
+		vec2 rip = ripples(pp, TIME) * mix(0.15, 1.0, pud) * wetness;
+		nmap = mix(nmap, vec3(0.5, 0.5, 1.0), mix(0.35, 0.95, pud));
+		nmap.xy += rip * 0.45;
+		spec = mix(0.5, 0.5, pud);
 		if (has_reflection) {
-			// Planar reflection (mirrored camera, flipped horizontally). Distorted by ripples and the
-			// asphalt; on wet asphalt it is blurred and streaked vertically, in puddles it is sharp.
-			vec2 ruv = vec2(1.0 - SCREEN_UV.x, SCREEN_UV.y);
-			vec2 dist = rip * 0.012 + (nrm.xy - 0.5) * 0.02 * (1.0 - pud);
-			ruv += dist;
-			vec3 refl = texture(reflection_tex, ruv).rgb;
+			// Planar reflection (mirrored camera, flipped horizontally) — only where it physically
+			// belongs: sharp-ish in puddles (water Fresnel), and on the rough film only the bright
+			// light sources come through, as soft streaks towards the viewer.
 			float ndv = clamp(dot(NORMAL, VIEW), 0.0, 1.0);
-			// Light streaks: wet asphalt smears each reflection along the view direction (straight
-			// down the screen, towards you), longer at grazing angles; puddles stay sharper.
-			float slen = mix(0.08, 0.42, pow(1.0 - ndv, 1.2)) * mix(1.0, 0.6, pud);
+			vec2 ruv = vec2(1.0 - SCREEN_UV.x, SCREEN_UV.y) + rip * 0.01;
+			ruv = clamp(ruv, vec2(0.002), vec2(0.998));
+			vec3 refl = texture(reflection_tex, ruv).rgb;
+			float slen = mix(0.05, 0.28, pow(1.0 - ndv, 1.3));
 			vec3 acc = vec3(0.0);
 			float wsum = 0.0;
 			for (int i = 0; i < streak_taps; i++) {
 				float t = float(i) / float(max(streak_taps - 1, 1));
-				vec2 o = vec2(rip.x * 0.012 * t + (nrm.x - 0.5) * 0.004, -t * slen);
-				float w = 1.0 - t * 0.45;
-				acc += texture(reflection_tex, ruv + o).rgb * w;
+				vec2 o = vec2((film - 0.5) * 0.01 * t, -t * slen);
+				float w = 1.0 - t * 0.6;
+				acc += texture(reflection_tex, clamp(ruv + o, vec2(0.002), vec2(0.998))).rgb * w;
 				wsum += w;
 			}
 			vec3 streak = acc / wsum;
-			vec3 base = mix(streak, refl, pud * 0.35);
-			// Fake HDR: bright light sources punch through as glowing streaks (and feed the bloom).
-			vec3 hot = max(streak - vec3(0.3), vec3(0.0)) * 3.6 + max(refl - vec3(0.7), vec3(0.0)) * 0.8 * pud;
-			float fres = 0.04 + 0.96 * pow(1.0 - ndv, 5.0);
-			float k = mix(0.35, 1.0, pud) * wetness * mix(fres, 1.0, 0.18 + 0.25 * pud);
-			EMISSION = base * k + hot * wetness * 0.85;
-			col *= 1.0 - k * 0.6;
-			spec *= 0.3;   // the planar reflection replaces most of the sky specular
+			// Only bright light sources survive the rough film (soft knee, no hard threshold).
+			float lum = dot(streak, vec3(0.3, 0.55, 0.15));
+			vec3 lights_only = streak * smoothstep(0.35, 0.9, lum) * 1.6;
+			float fres = 0.02 + 0.98 * pow(1.0 - ndv, 5.0);
+			// Fade reflections out with distance (the mirror plane is only exact near the bike).
+			float dist_fade = 1.0 - smoothstep(60.0, 160.0, length(VERTEX));
+			vec3 puddle_refl = refl * fres * 1.2;
+			EMISSION = (puddle_refl * pud + lights_only * (0.25 + 0.75 * fres) * (1.0 - pud * 0.5)) * wetness * dist_fade;
+			col *= 1.0 - pud * fres * 0.8;
+			spec = mix(spec, 0.15, pud);   // puddles: the planar reflection takes over from sky specular
 		}
 	}
 

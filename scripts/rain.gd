@@ -150,7 +150,7 @@ func _build_reflection() -> void:
 	refl_vp.positional_shadow_atlas_size = 0
 	add_child(refl_vp)
 	refl_cam = Camera3D.new()
-	refl_cam.cull_mask = 0xFFFFF & ~RAIN_LAYER
+	refl_cam.cull_mask = 0xFFFFF & ~RAIN_LAYER & ~Road.GROUND_LAYER
 	refl_vp.add_child(refl_cam)
 	refl_cam.current = true
 

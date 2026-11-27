@@ -213,23 +213,13 @@ func _build_ui() -> void:
 	row.add_theme_constant_override("separation", 10)
 	main_panel.add_child(row)
 	var gar_btn := _button("Garage", Color(0.16, 0.18, 0.24), 24)
-	gar_btn.custom_minimum_size = Vector2(176, 58)
+	gar_btn.custom_minimum_size = Vector2(268, 58)
 	gar_btn.pressed.connect(func(): _show_garage(true))
 	row.add_child(gar_btn)
 	var set_btn := _button("Settings", Color(0.16, 0.18, 0.24), 24)
-	set_btn.custom_minimum_size = Vector2(176, 58)
+	set_btn.custom_minimum_size = Vector2(268, 58)
 	set_btn.pressed.connect(func(): _show_settings(true))
 	row.add_child(set_btn)
-	var view_btn := _button("", Color(0.16, 0.18, 0.24), 24)
-	view_btn.custom_minimum_size = Vector2(196, 58)
-	var upd := func(): view_btn.text = "View: " + ("Cockpit" if Game.view == Game.View.FIRST_PERSON else "Chase")
-	upd.call()
-	var toggle := func():
-		Game.view = Game.View.CHASE if Game.view == Game.View.FIRST_PERSON else Game.View.FIRST_PERSON
-		Game.save()
-		upd.call()
-	view_btn.pressed.connect(toggle)
-	row.add_child(view_btn)
 
 	var credit := _label("Bike model: \"2022 Yamaha R1\" by Hari (Sketchfab)", 14, Color(1, 1, 1, 0.35))
 	credit.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
@@ -267,14 +257,18 @@ func _build_settings() -> void:
 	settings_panel.add_child(v)
 	v.add_child(_label("SETTINGS", 44, Color.WHITE))
 	var grid := GridContainer.new()
-	grid.columns = 2
-	grid.add_theme_constant_override("h_separation", 30)
+	grid.columns = 4
+	grid.add_theme_constant_override("h_separation", 26)
 	grid.add_theme_constant_override("v_separation", 12)
 	v.add_child(grid)
 	_cycle_row(grid, "Steering", ["Tilt", "Touch buttons"], func(): return Game.steering, func(i): Game.steering = i)
+	_slider_row(grid, "Cockpit height", -0.12, 0.15, func(): return Game.cam_height, func(x): Game.cam_height = x)
 	_slider_row(grid, "Tilt sensitivity", 0.5, 2.0, func(): return Game.tilt_sensitivity, func(x): Game.tilt_sensitivity = x)
+	_slider_row(grid, "Cockpit forward", -0.15, 0.15, func(): return Game.cam_forward, func(x): Game.cam_forward = x)
+	_slider_row(grid, "Button sensitivity", 0.3, 2.0, func(): return Game.button_sensitivity, func(x): Game.button_sensitivity = x)
+	_slider_row(grid, "Field of view", 45.0, 85.0, func(): return Game.cam_fov, func(x): Game.cam_fov = x)
 	_cycle_row(grid, "Steering assist", ["Off (pro lean)", "On"], func(): return 1 if Game.assist else 0, func(i): Game.assist = i == 1)
-	_cycle_row(grid, "Camera", ["Cockpit", "Chase"], func(): return Game.view, func(i): Game.view = i)
+	_slider_row(grid, "Look down", -22.0, -2.0, func(): return Game.cam_pitch, func(x): Game.cam_pitch = x)
 	_cycle_row(grid, "Graphics", ["Low", "Medium", "High"], func(): return Game.quality, func(i): Game.quality = i)
 	_slider_row(grid, "Volume", 0.0, 1.0, func(): return Game.sfx_volume, func(x): Game.sfx_volume = x)
 	var back := _button("Done", Color(0.88, 0.5, 0.04), 28)
@@ -299,7 +293,7 @@ func _slider_row(grid: GridContainer, title: String, lo: float, hi: float, gette
 	var s := HSlider.new()
 	s.min_value = lo
 	s.max_value = hi
-	s.step = 0.05
+	s.step = (hi - lo) / 100.0
 	s.value = getter.call()
 	s.custom_minimum_size = Vector2(260, 52)
 	var cb := func(x: float):

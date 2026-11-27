@@ -27,8 +27,8 @@ void vertex() {
 void fragment() {
 	vec2 p = UV * 2.0 - 1.0;
 	float r2 = dot(p, p);
-	float core = exp(-r2 * 70.0) * 2.5;
-	float glow = exp(-r2 * 14.0) * 0.8;
-	float mist = exp(-r2 * 3.0) * halo;
+	float core = exp(-r2 * 90.0) * 2.0;
+	float glow = exp(-r2 * 22.0) * 0.45;
+	float mist = exp(-r2 * 4.0) * halo;
 	ALBEDO = color.rgb * v_col * intensity * (core + glow + mist) * (1.0 - smoothstep(0.85, 1.0, sqrt(r2)));
 }

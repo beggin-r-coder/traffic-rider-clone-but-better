@@ -19,6 +19,7 @@ var backdrop: MeshInstance3D
 var headlight: SpotLight3D
 var sparks: GPUParticles3D
 var sky_info := {}
+var street_lights: StreetLightPool
 
 var state := State.COUNTDOWN
 var countdown := 3.0
@@ -64,6 +65,11 @@ func _ready() -> void:
 	add_child(traffic)
 	traffic.setup(road, Game.run_seed, two_way, night)
 	traffic.lights_on = night or Game.rain
+	if road.lamps_on:
+		street_lights = StreetLightPool.new()
+		street_lights.name = "StreetLights"
+		add_child(street_lights)
+		street_lights.setup(road, [3, 5, 7][clampi(Game.quality, 0, 2)], night)
 	traffic.near_miss.connect(_on_near_miss)
 	rider = Rider.new()
 	rider.name = "Rider"
@@ -376,6 +382,8 @@ func _process(delta: float) -> void:
 	for i in steps:
 		_step(h)
 	rider.update_visuals(dt)
+	if street_lights:
+		street_lights.update(rider.s)
 	if rain:
 		rain.update(dt)
 		rider.bike.set_wet_speed(clampf(rider.v / 50.0, 0.0, 1.0))
@@ -553,10 +561,8 @@ func quit_to_menu() -> void:
 	get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
 
 func _unhandled_input(e: InputEvent) -> void:
-	if e.is_action_pressed("change_view"):
-		Game.view = Game.View.CHASE if Game.view == Game.View.FIRST_PERSON else Game.View.FIRST_PERSON
-		rider.set_view(Game.view)
-		Game.save()
+	if false:
+		pass
 	elif e.is_action_pressed("pause") and state == State.RIDING:
 		hud.toggle_pause()
 

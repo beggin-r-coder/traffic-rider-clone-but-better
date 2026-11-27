@@ -164,6 +164,23 @@ func terrain_offset(s: float, d: float) -> float:
 	var hills := noise.get_noise_2d(s, d * 1.3) * 34.0 * a * a + a * 6.0
 	return ditch + hills
 
+# ---------------------------------------------------------------- street lights
+
+const LAMP_SPACING := 40.0
+## Render layer for road surface + terrain (kept out of the wet-road reflection camera, so the
+## ground doesn't get mirrored into itself).
+const GROUND_LAYER := 1 << 4
+
+## World position of the lamp head for street light number k, and its colour.
+func lamp_info(k: int) -> Array:
+	var s_lamp := k * LAMP_SPACING
+	var side := 1.0 if k % 2 == 0 else -1.0
+	var t := xform(s_lamp, side * (RAIL_D + 0.7))
+	if side < 0:
+		t.basis = t.basis.rotated(t.basis.y, PI)
+	var col := Color(0.78, 0.88, 1.0) if k % 3 == 0 else Color(1.0, 0.66, 0.34)
+	return [t * Vector3(-2.25, 8.2, 0), col]
+
 # ---------------------------------------------------------------- streaming
 
 func update_stream(player_s: float) -> void:
@@ -204,7 +221,9 @@ func _build_chunk(k: int) -> Node3D:
 
 	# --- road surface (incl. shoulders) ---
 	var road_d := [-(HALF_W + SHOULDER + 0.6), -HALF_W, HALF_W, HALF_W + SHOULDER + 0.6]
-	node.add_child(_strip_mesh(ss, road_d, _mat_road, 0.0, true))
+	var road_mi := _strip_mesh(ss, road_d, _mat_road, 0.0, true)
+	road_mi.layers = GROUND_LAYER
+	node.add_child(road_mi)
 
 	# --- terrain both sides ---
 	# Terrain only needs to reach just past the forest wall.
@@ -219,6 +238,7 @@ func _build_chunk(k: int) -> Node3D:
 	ter.mesh = _terrain_mesh(tss, tl, tr)
 	ter.material_override = _mat_terrain
 	ter.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	ter.layers = GROUND_LAYER
 	node.add_child(ter)
 
 	# --- guard rails ---
@@ -240,21 +260,19 @@ func _build_chunk(k: int) -> Node3D:
 	var glows: Array[Transform3D] = []
 	var flares: Array[Transform3D] = []
 	var flare_cols: Array[Color] = []
-	var s_lamp: float = ceil(s0 / 40.0) * 40.0
+	var s_lamp: float = ceil(s0 / LAMP_SPACING) * LAMP_SPACING
 	while s_lamp < s1:
-		var idx := int(s_lamp / 40.0)
+		var idx := int(round(s_lamp / LAMP_SPACING))
 		var side := 1.0 if idx % 2 == 0 else -1.0
 		var t := xform(s_lamp, side * (RAIL_D + 0.7))
 		if side < 0:
 			t.basis = t.basis.rotated(t.basis.y, PI)
 		lamps.append(t)
 		if lamps_on:
-			var g := xform(s_lamp, side * (RAIL_D - 2.6), 0.03)
-			glows.append(g)
 			flares.append(Transform3D(Basis(), t * Vector3(-2.25, 8.22, 0)))
 			# Mostly warm sodium, every third one a cool LED: the orange/cyan look of wet streets.
-			flare_cols.append(Color(0.62, 0.86, 1.0) if idx % 3 == 0 else Color(1.0, 0.56, 0.2))
-		s_lamp += 40.0
+			flare_cols.append(Color(0.78, 0.88, 1.0) if idx % 3 == 0 else Color(1.0, 0.66, 0.34))
+		s_lamp += LAMP_SPACING
 	if not lamps.is_empty():
 		node.add_child(_multimesh(_mesh_pole, lamps, null, true))
 	if not glows.is_empty():
@@ -444,7 +462,7 @@ func _build_materials() -> void:
 	_mat_lamp.albedo_color = Color(1, 0.9, 0.7)
 	_mat_lamp.emission_enabled = lamps_on
 	_mat_lamp.emission = Color(1.0, 0.8, 0.5)
-	_mat_lamp.emission_energy_multiplier = 12.0
+	_mat_lamp.emission_energy_multiplier = 8.0
 	_mat_glow = StandardMaterial3D.new()
 	_mat_glow.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	_mat_glow.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
@@ -455,9 +473,9 @@ func _build_materials() -> void:
 	_mat_flare = ShaderMaterial.new()
 	_mat_flare.shader = preload("res://shaders/light_flare.gdshader")
 	_mat_flare.set_shader_parameter("color", Color(1, 1, 1))
-	_mat_flare.set_shader_parameter("intensity", 2.6)
-	_mat_flare.set_shader_parameter("size", 1.8)
-	_mat_flare.set_shader_parameter("halo", 0.28)
+	_mat_flare.set_shader_parameter("intensity", 1.6)
+	_mat_flare.set_shader_parameter("size", 0.7)
+	_mat_flare.set_shader_parameter("halo", 0.12)
 	_mat_flare.set_shader_parameter("per_instance", true)
 	_flare_quad = QuadMesh.new()
 	_flare_quad.size = Vector2(1, 1)

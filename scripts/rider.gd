@@ -68,7 +68,7 @@ var _chase_xf := Transform3D()
 var _chase_prev_bike := Vector3.ZERO
 var _chase_init := false
 var _head_offset := Vector3(0, 1.38, 0.3)
-var _fov := 62.0
+var _fov := 60.0
 var scrape := 0.0         # >0 while grinding a guard rail (for sparks/sound)
 var wheelie := 0.0
 
@@ -375,20 +375,22 @@ func _update_fp_camera(t: Transform3D, dt: float) -> void:
 
 	if model:
 		target_head = model.fp_camera_position()
+	# Player POV adjustment (Settings / pause menu).
+	target_head += Vector3(0, Game.cam_height, -Game.cam_forward)
 	_head_offset = _head_offset.lerp(target_head, 1.0 - exp(-8.0 * dt))
 	var lean_b := Basis(Vector3.BACK, -lean)
 	var origin := t * (Basis(Vector3.BACK, -lean) * _head_offset)
 	# Head stays more upright than the bike (riders counter the lean with their neck).
 	var cam_roll := -lean * 0.42
 	var look_yaw := -curvature * clampf(v, 0.0, 60.0) * 0.12
-	var look_pitch := deg_to_rad(-11.0) - wheelie * 0.02
+	var look_pitch := deg_to_rad(Game.cam_pitch) - wheelie * 0.02
 	var b := t.basis * Basis(Vector3.UP, look_yaw) * Basis(Vector3.BACK, cam_roll) * Basis(Vector3.RIGHT, look_pitch)
 	# Engine & road vibration.
 	var vib := 0.0015 + 0.004 * clampf(v / 80.0, 0.0, 1.0) + _cam_shake * 0.02
 	var sh := _shake_vec(vib)
 	origin += b.x * sh.x + b.y * sh.y
 	camera.global_transform = Transform3D(b.orthonormalized(), origin)
-	var target_fov := 60.0 + 16.0 * clampf((v - 15.0) / 70.0, 0.0, 1.0)
+	var target_fov := Game.cam_fov + 16.0 * clampf((v - 15.0) / 70.0, 0.0, 1.0)
 	_fov = lerpf(_fov, target_fov, 1.0 - exp(-3.0 * dt))
 	camera.fov = _fov
 
