@@ -790,8 +790,8 @@ func _generic_materials() -> void:
 				g.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 				g.cull_mode = BaseMaterial3D.CULL_DISABLED
 				g.roughness = 0.04
-				if mname == "Windshield":
-					g.albedo_color = Color(0.5, 0.55, 0.6, 0.35)
+				# Clear covers: the atlas has no alpha, so the tint sets the transparency.
+				g.albedo_color = Color(0.5, 0.55, 0.6, 0.35) if mname == "Windshield" else Color(1, 1, 1, 0.25)
 				m = g
 			elif mname in tail_meshes or mname in head_meshes:
 				var e: BaseMaterial3D = (m as BaseMaterial3D).duplicate()
