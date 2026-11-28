@@ -15,7 +15,17 @@ const W := 1024.0
 const H := 452.0
 const DIAL_C := Vector2(428, 229)
 const DIAL_R := 206.0
-const LCD := Rect2(674, 46, 340, 330)
+const LCD := Rect2(674, 46, 340, 330)       # layout box for the LCD content
+## Outlines of the model's two side openings in canvas pixels (the dash decal pieces projected the
+## same way BikeVisual projects them). The panels are drawn to these shapes, so their edges follow
+## the curves of the slots in the housing.
+const SLOT_LEFT := [Vector2(0, 183), Vector2(19, 107), Vector2(34, 62), Vector2(282, 3), Vector2(233, 73),
+	Vector2(189, 169), Vector2(189, 277), Vector2(233, 378), Vector2(282, 450), Vector2(34, 391),
+	Vector2(19, 343), Vector2(0, 270)]
+const SLOT_RIGHT := [Vector2(666, 169), Vector2(617, 73), Vector2(569, 0), Vector2(967, 42), Vector2(1001, 93),
+	Vector2(1026, 180), Vector2(1026, 273), Vector2(1001, 360), Vector2(967, 411), Vector2(569, 450),
+	Vector2(617, 378), Vector2(666, 277)]
+const LCD_BOTTOM := 392.0                    # LCD window ends here; the amber lamp sits below it
 const GEAR_BOX := Rect2(505, 160, 98, 172)
 const BEZEL := Color(0.06, 0.065, 0.07)
 const FACE := Color(0.035, 0.037, 0.04)
@@ -43,7 +53,7 @@ func _draw() -> void:
 	_draw_gear_box(f)
 	# Amber shift lamp under the LCD (flashes at the redline).
 	var shift := dash.rpm > dash.redline - 600.0 and fmod(t * 8.0, 2.0) < 1.0
-	var lamp := Rect2(LCD.position.x + 92, LCD.end.y + 18, 46, 26)
+	var lamp := Rect2(LCD.position.x + 96, LCD_BOTTOM + 8, 44, 20)
 	draw_rect(lamp, Color(1.0, 0.45, 0.05) if shift else Color(0.28, 0.12, 0.04))
 	if shift:
 		draw_rect(lamp.grow(5), Color(1.0, 0.5, 0.1, 0.25))
@@ -51,8 +61,9 @@ func _draw() -> void:
 # ------------------------------------------------------------------ left warning lights
 
 func _draw_warning_panel(f: Font) -> void:
-	draw_rect(Rect2(14, 40, 200, 372), FACE)
-	var x := 40.0
+	# Panel face to the slot's shape (bowed outer edge, inner edge curving round the dial).
+	_fill_shape(SLOT_LEFT, 5.0, Color(0.14, 0.145, 0.155))
+	_fill_shape(SLOT_LEFT, 11.0, FACE)
 	var lights := [
 		["<", Color(0.15, 0.9, 0.3), false],            # turn signal
 		["KTRC", Color(1.0, 0.55, 0.1), false],
@@ -64,7 +75,9 @@ func _draw_warning_panel(f: Font) -> void:
 	]
 	for i in lights.size():
 		var l: Array = lights[i]
-		var y := 62.0 + i * 48.0
+		var y := 66.0 + i * 47.0
+		# The light column follows the panel's curved outer edge.
+		var x := _edge_x(SLOT_LEFT, y + 18.0, true) + 22.0
 		var col: Color = l[1]
 		var on: bool = l[2]
 		var c := col if on else col.darkened(0.82)
@@ -127,8 +140,11 @@ func _draw_dial(f: Font) -> void:
 
 func _draw_gear_box(f: Font) -> void:
 	var g := GEAR_BOX
-	draw_rect(g.grow(5), Color(0.2, 0.21, 0.22))
-	draw_rect(g, LCD_BG)
+	# Window with a curved right side running along the dial rim.
+	var outer := _rect_in_circle(Rect2(g.position - Vector2(5, 5), Vector2(160, g.size.y + 10)), DIAL_C, DIAL_R - 12.0)
+	var inner := _rect_in_circle(Rect2(g.position, Vector2(160, g.size.y)), DIAL_C, DIAL_R - 17.0)
+	draw_colored_polygon(outer, Color(0.2, 0.21, 0.22))
+	draw_colored_polygon(inner, LCD_BG)
 	draw_string(f, g.position + Vector2(8, 21), "GEAR", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, LCD_INK)
 	var txt := "N" if dash.gear <= 0 else str(dash.gear)
 	if txt == "N":
@@ -143,14 +159,20 @@ func _draw_gear_box(f: Font) -> void:
 
 func _draw_lcd(f: Font, _t: float) -> void:
 	var l := LCD
-	draw_rect(l.grow(6), Color(0.2, 0.21, 0.22))
-	draw_rect(l, LCD_BG)
+	# LCD window to the slot's shape: concave side round the dial, slanted top, rounded outer edge;
+	# cut off at LCD_BOTTOM so the lamp strip below stays bezel.
+	var cut := PackedVector2Array([Vector2(0, -10), Vector2(W + 10, -10), Vector2(W + 10, LCD_BOTTOM), Vector2(0, LCD_BOTTOM)])
+	var cut_in := PackedVector2Array([Vector2(0, -10), Vector2(W + 10, -10), Vector2(W + 10, LCD_BOTTOM - 6), Vector2(0, LCD_BOTTOM - 6)])
+	for poly in Geometry2D.intersect_polygons(_inset(SLOT_RIGHT, 5.0), cut):
+		draw_colored_polygon(poly, Color(0.2, 0.21, 0.22))
+	for poly in Geometry2D.intersect_polygons(_inset(SLOT_RIGHT, 11.0), cut_in):
+		draw_colored_polygon(poly, LCD_BG)
 	var x0 := l.position.x
 	var y0 := l.position.y
 	# Top line: trip / odometer.
-	draw_string(f, Vector2(x0 + 70, y0 + 34), "TRIP A", HORIZONTAL_ALIGNMENT_LEFT, -1, 18, LCD_INK)
-	_seg_number("%.1f" % fmod(dash.trip_km, 1000.0), Vector2(l.end.x - 46, y0 + 14), Vector2(20, 34), 5.0, LCD_INK)
-	draw_string(f, Vector2(l.end.x - 44, y0 + 66), "km", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, LCD_INK)
+	draw_string(f, Vector2(x0 + 70, y0 + 46), "TRIP A", HORIZONTAL_ALIGNMENT_LEFT, -1, 18, LCD_INK)
+	_seg_number("%.1f" % fmod(dash.trip_km, 1000.0), Vector2(l.end.x - 78, y0 + 24), Vector2(19, 32), 5.0, LCD_INK)
+	draw_string(f, Vector2(l.end.x - 72, y0 + 54), "km", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, LCD_INK)
 	# Fuel bar (left edge): F at top, E at the bottom.
 	draw_string(f, Vector2(x0 + 9, y0 + 28), "F", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, LCD_INK)
 	draw_string(f, Vector2(x0 + 9, y0 + 222), "E", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, LCD_INK)
@@ -191,6 +213,41 @@ func _seg_number(s: String, right_top: Vector2, digit: Vector2, th: float, col: 
 		x -= digit.x
 		_seg_digit(int(ch), Rect2(Vector2(x, right_top.y), digit), th, col)
 		x -= digit.x * 0.35
+
+## A slot outline shrunk inwards by `d` pixels (largest piece if the offset splits it).
+static func _inset(pts: Array, d: float) -> PackedVector2Array:
+	var res := Geometry2D.offset_polygon(PackedVector2Array(pts), -d, Geometry2D.JOIN_ROUND)
+	var best := PackedVector2Array()
+	for p: PackedVector2Array in res:
+		if p.size() > best.size():
+			best = p
+	return best
+
+func _fill_shape(pts: Array, d: float, col: Color) -> void:
+	var p := _inset(pts, d)
+	if p.size() >= 3:
+		draw_colored_polygon(p, col)
+
+## x of the slot's left (or right) edge at height y.
+static func _edge_x(pts: Array, y: float, left: bool) -> float:
+	var best := 1e9 if left else -1e9
+	for i in pts.size():
+		var a: Vector2 = pts[i]
+		var b: Vector2 = pts[(i + 1) % pts.size()]
+		if (a.y - y) * (b.y - y) <= 0.0 and absf(b.y - a.y) > 1e-3:
+			var x := lerpf(a.x, b.x, (y - a.y) / (b.y - a.y))
+			best = minf(best, x) if left else maxf(best, x)
+	return best
+
+## Rectangle clipped by a circle (polygon), for windows that run up to the dial rim.
+static func _rect_in_circle(r: Rect2, c: Vector2, radius: float) -> PackedVector2Array:
+	var circ := PackedVector2Array()
+	for i in 72:
+		var a := TAU * i / 72.0
+		circ.append(c + Vector2(cos(a), sin(a)) * radius)
+	var rect := PackedVector2Array([r.position, Vector2(r.end.x, r.position.y), r.end, Vector2(r.position.x, r.end.y)])
+	var res := Geometry2D.intersect_polygons(rect, circ)
+	return res[0] if not res.is_empty() else rect
 
 const SEGS := [0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x6F]
 

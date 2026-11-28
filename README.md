@@ -85,7 +85,8 @@ and a live TFT dash is placed on the instrument face.
   column, the big analog tach (0-4k compressed along the bottom, red from 16k, silver needle), the
   GEAR/CLOCK window inside the dial, and the backlit LCD (7-segment speed with ghost segments, trip,
   odometer, fuel bar, mode line). An amber shift lamp flashes at the redline. It is drawn into a
-  texture and projected flat onto the model's own three dash faces, so it fills exactly the slots in
+  texture and projected flat onto the model's own three dash faces; the warning panel, LCD window and
+  gear window are drawn to the exact outlines of the openings, so they follow the curves of the slots in
   the cluster housing.
 - **ZX-6R:** the 4K PBR texture set was reduced to 2K/1K albedo + packed roughness/metal + normal maps
   (`assets/bikes/zx6r/tex/`); the green livery is the repaintable part.
