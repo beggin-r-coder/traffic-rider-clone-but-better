@@ -120,7 +120,7 @@ func run(dir: String) -> void:
 		"front": [Vector3(0.0, 1.2, -3.0), Vector3(0, 1.0, 0.0), 30.0],
 		"feet_r": [pg + Vector3(0.75, 0.1, -0.02), pg + Vector3(0, 0.03, 0.02), 30.0],
 		"feet_rear": [pg + Vector3(0.45, 0.3, 0.95), pg + Vector3(-0.02, 0.03, 0.02), 30.0],
-		"dash": [Vector3(0.0, gc.y + 0.34, -0.25), Vector3(0.0, gc.y + 0.07, -0.625), 40.0],
+		"dash": [Vector3(0.0, gc.y + 0.30, -0.30), Vector3(0.0, gc.y + 0.075, -0.6), 34.0],
 		"front34": [Vector3(1.8, 1.5, -2.6), Vector3(0, 0.9, -0.2), 40.0],
 		"hand_r": [gc + Vector3(0.46, 0.21, -0.35), gc, 30.0],
 		"hand_top": [gc + Vector3(0, 0.51, 0.0), gc, 30.0],
@@ -157,10 +157,12 @@ func run(dir: String) -> void:
 			cam.fov = v[2]
 			var upv := Vector3.FORWARD if vn == "hand_top" else Vector3.UP
 			cam.global_transform = Transform3D(Basis(), lt * v[0]).looking_at(lt * v[1], upv)
-			rider.set_first_person(false)
+			rider.set_first_person(vn == "dash")
 			await RenderingServer.frame_post_draw
 			await RenderingServer.frame_post_draw
 			get_viewport().get_texture().get_image().save_png("%s/%s_%s.png" % [dir, st, vn])
+			if vn == "dash" and bike.dash:
+				bike.dash.get_texture().get_image().save_png("%s/dash_texture.png" % dir)
 		# first person
 		if not only.is_empty() and not "fp" in only:
 			continue

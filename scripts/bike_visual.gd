@@ -867,10 +867,63 @@ func _generic_paint(src: BaseMaterial3D, tex_dir: String, rn: String) -> ShaderM
 	_paint_mats.append(sm)
 	return sm
 
+## Full instrument cluster: the model's printed dash faces (warning panel, dial, LCD) get new UVs
+## from a flat projection onto the dash plane and show the live cluster texture, so the drawn
+## cluster fills exactly the slots of the model.
+func _cluster_on_decal(mi: MeshInstance3D, dash_style: String) -> void:
+	var xf := _rel_xform(mi)
+	var lo := Vector3(1e9, 1e9, 1e9)
+	var hi := -lo
+	for si in mi.mesh.get_surface_count():
+		for v in (mi.mesh.surface_get_arrays(si)[Mesh.ARRAY_VERTEX] as PackedVector3Array):
+			var p := xf * v
+			lo = lo.min(p)
+			hi = hi.max(p)
+	# Plane "up": rises in y while moving forward (-z), as the dash is tilted back at the rider.
+	var ud := Vector3(0, hi.y - lo.y, -(hi.z - lo.z)).normalized()
+	var a_min := 1e9
+	var a_max := -1e9
+	for p in [lo, hi, Vector3(lo.x, lo.y, hi.z), Vector3(lo.x, hi.y, lo.z)]:
+		a_min = minf(a_min, p.dot(ud))
+		a_max = maxf(a_max, p.dot(ud))
+	var out := ArrayMesh.new()
+	for si in mi.mesh.get_surface_count():
+		var arrays := mi.mesh.surface_get_arrays(si)
+		var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		var uvs := PackedVector2Array()
+		uvs.resize(verts.size())
+		for i in verts.size():
+			var p := xf * verts[i]
+			uvs[i] = Vector2((p.x - lo.x) / maxf(hi.x - lo.x, 1e-4), (a_max - p.dot(ud)) / maxf(a_max - a_min, 1e-4))
+		arrays[Mesh.ARRAY_TEX_UV] = uvs
+		arrays[Mesh.ARRAY_TANGENT] = null
+		out.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	mi.mesh = out
+	dash = DashDisplay.new()
+	dash.name = "Dash"
+	dash.redline = float(def["redline"])
+	add_child(dash)
+	dash.setup(null, dash_style)
+	var dm := StandardMaterial3D.new()
+	var vt := dash.get_texture()
+	dm.albedo_texture = vt
+	dm.emission_enabled = true
+	dm.emission_texture = vt
+	dm.emission_energy_multiplier = 0.75
+	dm.roughness = 0.12
+	dm.metallic_specular = 0.7
+	dm.cull_mode = BaseMaterial3D.CULL_DISABLED
+	for si in out.get_surface_count():
+		mi.set_surface_override_material(si, dm)
+	mi.layers = BIKE_LAYER
+
 ## Live dash: a quad on the instrument face showing the DashDisplay screen.
 func _generic_dash(by_name: Dictionary) -> void:
 	var dd: Dictionary = def.get("dash", {})
 	if dd.is_empty():
+		return
+	if dd.get("style", "") != "" and dd.has("decal_mesh") and by_name.has(dd["decal_mesh"]):
+		_cluster_on_decal(by_name[dd["decal_mesh"]], dd["style"])
 		return
 	var center: Vector3
 	var nrm: Vector3

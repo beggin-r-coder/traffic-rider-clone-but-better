@@ -79,6 +79,14 @@ the wheels are re-parented to spinning hubs, the brake and clutch levers are cut
 they pivot, the mirror glass (the rear-facing triangles on the mirror heads) shows a live rear camera,
 and a live TFT dash is placed on the instrument face.
 
+![](docs/zx6r_cluster.png)
+
+- **ZX-6R instrument cluster** (`scripts/cluster_zx6r.gd`): the real layout, with the warning-light
+  column, the big analog tach (0-4k compressed along the bottom, red from 16k, silver needle), the
+  GEAR/CLOCK window inside the dial, and the backlit LCD (7-segment speed with ghost segments, trip,
+  odometer, fuel bar, mode line). An amber shift lamp flashes at the redline. It is drawn into a
+  texture and projected flat onto the model's own three dash faces, so it fills exactly the slots in
+  the cluster housing.
 - **ZX-6R:** the 4K PBR texture set was reduced to 2K/1K albedo + packed roughness/metal + normal maps
   (`assets/bikes/zx6r/tex/`); the green livery is the repaintable part.
 - **H2:** the model has no textures, only vertex colours, so it gets per-material finishes (mirror-black

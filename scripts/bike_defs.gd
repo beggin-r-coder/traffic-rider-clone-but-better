@@ -92,7 +92,7 @@ const LIST := [
 		"lever_in": Vector3(0.190, 0.880, -0.475), "lever_out": Vector3(0.310, 0.860, -0.449),
 		"lever_pivot": Vector3(0.170, 0.884, -0.478),
 		"peg": Vector3(0.225, 0.37, 0.29), "seat": Vector3(0.0, 0.868, 0.37),
-		"dash": {"decal_mesh": "Dashboard_001"},
+		"dash": {"decal_mesh": "Dashboard_001", "style": "zx6r"},
 		"mirror_cam": Vector3(0.0, 1.12, -0.25),
 	},
 ]

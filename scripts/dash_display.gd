@@ -12,8 +12,12 @@ var speed := 0.0
 var rpm := 1300.0
 var gear := 1
 var redline := 14000.0
+var style := "tft"            # "tft" (R1 screen overlay) or "zx6r" (full analog/LCD cluster)
+var trip_km := 26.3
+var odo_km := 4812.0
 var _shown := Vector3(-1, -1, -1)
-var _canvas: DashCanvas
+var _canvas: Control
+var _last_ms := -1
 
 func _init() -> void:
 	size = Vector2i(1024, 512)
@@ -21,22 +25,39 @@ func _init() -> void:
 	disable_3d = true
 	render_target_update_mode = SubViewport.UPDATE_ONCE
 
-func setup(photo: Texture2D) -> void:
+func setup(photo: Texture2D, dash_style: String = "tft") -> void:
+	style = dash_style
+	if style == "zx6r":
+		size = Vector2i(int(ClusterZX6R.W), int(ClusterZX6R.H))
+		var cl := ClusterZX6R.new()
+		cl.dash = self
+		cl.size = Vector2(size)
+		_canvas = cl
+		add_child(cl)
+		return
 	if photo:
 		var bg := TextureRect.new()
 		bg.texture = photo
 		bg.size = Vector2(1024, 512)
 		add_child(bg)
-	_canvas = DashCanvas.new()
-	_canvas.dash = self
-	_canvas.size = Vector2(1024, 512)
-	add_child(_canvas)
+	var dc := DashCanvas.new()
+	dc.dash = self
+	dc.size = Vector2(1024, 512)
+	_canvas = dc
+	add_child(dc)
 
 func set_values(kmh: float, r: float, g: int) -> void:
 	speed = kmh
 	rpm = r
 	gear = g
-	var key := Vector3(int(round(kmh)), int(r / 200.0), g)
+	var now := Time.get_ticks_msec()
+	if _last_ms >= 0:
+		var km := kmh * (now - _last_ms) / 3600000.0
+		trip_km += km
+		odo_km += km
+	_last_ms = now
+	# The analog needle needs finer steps than the TFT bar graph.
+	var key := Vector3(int(round(kmh)), int(r / (50.0 if style == "zx6r" else 200.0)), g)
 	if key != _shown or fmod(Time.get_ticks_msec() / 1000.0, 0.25) < 0.02:
 		_shown = key
 		_canvas.queue_redraw()
