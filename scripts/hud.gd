@@ -32,6 +32,9 @@ var speed_fx: ColorRect
 var combo_bar: ColorRect       # drains as the combo window runs out
 var streak_lbl: Label
 var retry_btn: Button
+var visor: ColorRect
+var speed_blur: ColorRect
+var lean_lbl: Label
 
 func setup(w) -> void:
 	world = w
@@ -42,6 +45,16 @@ func setup(w) -> void:
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(root)
 	_font = ThemeDB.fallback_font
+	# Radial speed blur (first child: it samples the 3D frame). Off on low graphics.
+	speed_blur = ColorRect.new()
+	speed_blur.set_anchors_preset(Control.PRESET_FULL_RECT)
+	speed_blur.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var bm := ShaderMaterial.new()
+	bm.shader = preload("res://shaders/speed_blur.gdshader")
+	bm.set_shader_parameter("samples", 8 if Game.quality >= 2 else 5)
+	speed_blur.material = bm
+	speed_blur.visible = false
+	root.add_child(speed_blur)
 	speed_fx = ColorRect.new()
 	speed_fx.set_anchors_preset(Control.PRESET_FULL_RECT)
 	speed_fx.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -49,6 +62,13 @@ func setup(w) -> void:
 	sm.shader = preload("res://shaders/speed_lines.gdshader")
 	speed_fx.material = sm
 	root.add_child(speed_fx)
+	visor = ColorRect.new()
+	visor.set_anchors_preset(Control.PRESET_FULL_RECT)
+	visor.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var vm := ShaderMaterial.new()
+	vm.shader = preload("res://shaders/helmet_visor.gdshader")
+	visor.material = vm
+	root.add_child(visor)
 
 	# --- top-left: score ---
 	var tl := _panel(Vector2(18, 14), Vector2(270, 84))
@@ -140,6 +160,16 @@ func setup(w) -> void:
 	_style_button(pause_btn, PANEL)
 	pause_btn.pressed.connect(toggle_pause)
 	root.add_child(pause_btn)
+
+	# Lean angle readout (bottom centre).
+	lean_lbl = _label("", 26, Color(1, 1, 1, 0.85))
+	lean_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lean_lbl.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	lean_lbl.position = Vector2(-100, -54)
+	lean_lbl.size = Vector2(200, 36)
+	lean_lbl.add_theme_constant_override("outline_size", 6)
+	lean_lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.6))
+	root.add_child(lean_lbl)
 
 	# Quick retry after a crash (no waiting for the results panel).
 	retry_btn = Button.new()
@@ -307,6 +337,18 @@ func refresh(dt: float) -> void:
 	var sfx_mat := speed_fx.material as ShaderMaterial
 	sfx_mat.set_shader_parameter("amount", clampf((r.kmh() - 170.0) / 110.0, 0.0, 1.0) if not r.is_crashed else 0.0)
 	sfx_mat.set_shader_parameter("aspect", vs.x / maxf(vs.y, 1.0))
+	var blur := clampf((r.kmh() - 190.0) / 130.0, 0.0, 1.0) if not r.is_crashed else 0.0
+	speed_blur.visible = Game.quality >= 1 and blur > 0.01
+	if speed_blur.visible:
+		(speed_blur.material as ShaderMaterial).set_shader_parameter("amount", blur)
+	var la := absi(int(round(rad_to_deg(r.lean))))
+	lean_lbl.text = ("%s %d°" % ["L" if r.lean < 0.0 else "R", la]) if la >= 5 and world.is_riding() else ""
+	lean_lbl.add_theme_color_override("font_color", Color(1.0, 0.55, 0.15) if r.knee_scrape > 0.5 else Color(1, 1, 1, 0.85))
+	visor.visible = Game.helmet_view and Game.view == Game.View.FIRST_PERSON and not r.is_crashed
+	if visor.visible:
+		var vmat := visor.material as ShaderMaterial
+		vmat.set_shader_parameter("aspect", vs.x / maxf(vs.y, 1.0))
+		vmat.set_shader_parameter("speed", clampf((r.kmh() - 150.0) / 150.0, 0.0, 1.0))
 	speed_lbl.visible = Game.view != Game.View.FIRST_PERSON
 	speed_lbl.text = "%d km/h   %s" % [int(round(r.kmh())), ("G%d" % r.gear)]
 	if Game.mode == Game.Mode.TIME_TRIAL:
@@ -453,6 +495,11 @@ func toggle_pause() -> void:
 			recenter_tilt()
 			toggle_pause())
 	v.add_child(_label("COCKPIT VIEW", 18, Color(1, 1, 1, 0.6)))
+	var hv := _button(v, "Helmet view: " + ("On" if Game.helmet_view else "Off"), func(): pass)
+	hv.pressed.connect(func():
+		Game.helmet_view = not Game.helmet_view
+		Game.save()
+		hv.text = "Helmet view: " + ("On" if Game.helmet_view else "Off"))
 	var pg := GridContainer.new()
 	pg.columns = 2
 	pg.add_theme_constant_override("h_separation", 20)

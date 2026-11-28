@@ -84,6 +84,10 @@ var _acc_s := 0.0         # smoothed longitudinal acceleration (camera pitch)
 var _shift_kick := 0.0    # head nod on upshift
 var _fov_kick := 0.0      # FOV punch (near misses)
 var _cam_roll := 0.0      # head roll, lags the bike's lean
+var stoppie := 0.0        # rad: chassis pitched over the front tyre under hard braking (rear goes light)
+var rear_slide := 0.0     # rad: rear stepping out when braking hard into a bend (+ = rear to the right)
+var tyre_fx := 0.0        # 0..1 smoke / skid intensity
+var fx: RaceFx
 
 ## The rider avatar, posed by IK onto the grips/pegs every frame (scripts/rider_model.gd).
 const SHOW_RIDER := true
@@ -401,10 +405,41 @@ func update_visuals(dt: float) -> void:
 		_update_crash_camera(dt)
 		return
 	var t := bike_transform()
-	# Pitch the bike slightly under acceleration/braking (squat & dive).
-	var pitch := wheelie * 0.025
+	# Squat under acceleration (about the rear contact patch).
+	var pitch := maxf(wheelie, 0.0) * 0.02
 	t.basis = t.basis * Basis(Vector3.RIGHT, pitch)
+	# Hard braking: the chassis pitches forward over the front tyre and the rear goes light,
+	# lifting a few centimetres at the limit from high speed.
+	var st_t := 0.0
+	if brake > 0.6 and v > 15.0:
+		st_t = deg_to_rad(1.0 + 2.2 * smoothstep(0.8, 1.0, brake) * clampf((v - 15.0) / 30.0, 0.0, 1.0))
+	stoppie = lerpf(stoppie, st_t, 1.0 - exp(-(6.0 if st_t > stoppie else 4.0) * dt))
+	# Backing it in: braking hard with the bike nearly upright before a bend, the rear steps out
+	# towards the outside of the corner (visual yaw about the front contact patch).
+	var turn: float = model.turn_ahead if model else 0.0
+	var sl_t := 0.0
+	if brake > 0.75 and v > 20.0 and absf(turn) > 0.3 and absf(lean) < 0.45:
+		sl_t = -signf(turn) * deg_to_rad(7.0) * clampf((brake - 0.75) / 0.25, 0.0, 1.0)
+	rear_slide = lerpf(rear_slide, sl_t, 1.0 - exp(-3.5 * dt))
+	var front := Vector3(0, 0, -bike.wheelbase * 0.5)
 	var t_cam := t
+	if stoppie > 0.0005 or absf(rear_slide) > 0.0005:
+		var sb := Basis(Vector3.UP, rear_slide) * Basis(Vector3.RIGHT, -stoppie)
+		t = t * Transform3D(sb, front - sb * front)
+		# The helmet cam feels the pitch but keeps looking down the road while the rear slides.
+		var cb := Basis(Vector3.RIGHT, -stoppie * 0.7)
+		t_cam = t_cam * Transform3D(cb, front - cb * front)
+	# Tyre smoke / skid marks when the rear slides or the brakes are at the limit at speed.
+	tyre_fx = clampf(absf(rear_slide) / deg_to_rad(5.0), 0.0, 1.0)
+	if brake > 0.95 and v > 25.0:
+		tyre_fx = maxf(tyre_fx, 0.4)
+	if fx == null and get_parent():
+		fx = RaceFx.new()
+		get_parent().add_child(fx)
+	if fx:
+		var rear_c: Vector3 = t * Vector3(0, 0.02, bike.wheelbase * 0.5)
+		fx.update_tyre(rear_c, -t.basis.z, t.basis.y, tyre_fx)
+	bike.update_race_fx(dt, brake, v)
 	if wheelie_angle > 0.001:
 		# Pivot about the rear tyre's contact patch.
 		var rear := Vector3(0, 0, bike.wheelbase * 0.5)
@@ -428,7 +463,12 @@ func update_visuals(dt: float) -> void:
 		model.steer = steer
 		model.speed = v
 		model.clutch = clampf(_clutch_t / 0.12, 0.0, 1.0)
+		model.accel = accel
+		# Upcoming bend (+ right): what the rider sets up for and looks into.
+		var look_s := maxf(25.0, v * 1.8)
+		model.turn_ahead = clampf(road.curvature_at(s + look_s) * 160.0, -1.0, 1.0) if road else 0.0
 		model.update_pose(dt)
+		_update_knee(dt)
 		bike.set_levers(model.lever_pull, model.clutch_pull)
 	if Game.has_flag("photo"):
 		# Dev/marketing camera: close 3/4 view riding alongside the bike.
@@ -452,7 +492,11 @@ func _update_fp_camera(t: Transform3D, dt: float) -> void:
 	target_head.z -= clampf((v - 40.0) / 40.0, 0.0, 1.0) * 0.04
 
 	if model:
-		target_head = model.fp_camera_position()
+		# Helmet cam: the framed cockpit position plus the head's real movement from the animation
+		# (down behind the screen in the tuck, inside when hanging off, forward on the brakes).
+		var hd := model.head_delta()
+		hd = Vector3(clampf(hd.x, -0.3, 0.3), clampf(hd.y, -0.25, 0.08), clampf(hd.z, -0.2, 0.12))
+		target_head = model.fp_camera_position() + hd * Vector3(0.6, 0.75, 0.9)
 	# Player POV adjustment (Settings / pause menu).
 	target_head += Vector3(0, Game.cam_height, -Game.cam_forward)
 	# Weight transfer: the head pitches down and forward under braking / engine braking, back
@@ -468,7 +512,11 @@ func _update_fp_camera(t: Transform3D, dt: float) -> void:
 	# slightly so leaning in feels like your body is doing it.
 	_cam_roll = lerpf(_cam_roll, -lean * 0.42, 1.0 - exp(-7.0 * dt))
 	var look_yaw := -curvature * clampf(v, 0.0, 60.0) * 0.12
+	if model:
+		look_yaw -= model.head_yaw() * 0.6         # eyes through the corner
 	var look_pitch := deg_to_rad(Game.cam_pitch) + surge * 0.0055 + _shift_kick * 0.022
+	if model:
+		look_pitch += deg_to_rad(8.0) * model._tuck   # tucked: eyes up over the dash
 	var b := t.basis * Basis(Vector3.UP, look_yaw) * Basis(Vector3.BACK, _cam_roll) * Basis(Vector3.RIGHT, look_pitch)
 	# Vibration: road rumble growing with speed, a fine engine buzz growing with revs.
 	var r01 := clampf(rpm / REDLINE, 0.0, 1.0)
@@ -482,6 +530,63 @@ func _update_fp_camera(t: Transform3D, dt: float) -> void:
 	var target_fov := Game.cam_fov + 16.0 * clampf((v - 15.0) / 70.0, 0.0, 1.0) + 5.0 * clampf((v - 61.0) / 25.0, 0.0, 1.0)
 	_fov = lerpf(_fov, target_fov, 1.0 - exp(-3.0 * dt))
 	camera.fov = _fov - _shift_kick * 1.5 + _fov_kick
+
+# --- knee down ---
+var knee_scrape := 0.0      # 0..1, for the scrape sound
+var knee_min_h := 9.0       # lowest knee height seen (test log)
+var _knee_sparks: GPUParticles3D
+
+func _update_knee(dt: float) -> void:
+	knee_scrape = maxf(knee_scrape - dt * 4.0, 0.0)
+	if model == null or road == null or absf(lean) < 0.6:
+		if _knee_sparks:
+			_knee_sparks.emitting = false
+		return
+	var side := signf(lean)
+	var lt := bike.lean_node.global_transform
+	var kp: Vector3 = lt * model.knee_point(side)
+	var ground := road.point(s, d).y
+	var h := kp.y - ground
+	knee_min_h = minf(knee_min_h, h)
+	if h < 0.10 and v > 8.0:
+		knee_scrape = 1.0
+		if _knee_sparks == null:
+			_knee_sparks = _make_knee_sparks()
+		_knee_sparks.global_position = Vector3(kp.x, ground + 0.02, kp.z)
+		_knee_sparks.amount_ratio = clampf((0.10 - h) / 0.06, 0.25, 1.0)
+		_knee_sparks.emitting = true
+	elif _knee_sparks:
+		_knee_sparks.emitting = false
+
+func _make_knee_sparks() -> GPUParticles3D:
+	var p := GPUParticles3D.new()
+	p.amount = 40
+	p.lifetime = 0.35
+	p.local_coords = false
+	p.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var pm := ParticleProcessMaterial.new()
+	pm.direction = Vector3(0, 0.35, 1)
+	pm.spread = 25.0
+	pm.initial_velocity_min = 2.0
+	pm.initial_velocity_max = 6.0
+	pm.gravity = Vector3(0, -9.0, 0)
+	pm.scale_min = 0.012
+	pm.scale_max = 0.03
+	pm.color = Color(1.0, 0.62, 0.2)
+	p.process_material = pm
+	var q := QuadMesh.new()
+	q.size = Vector2(1, 1)
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
+	m.vertex_color_use_as_albedo = true
+	m.emission_enabled = true
+	m.emission = Color(1.0, 0.55, 0.15)
+	m.emission_energy_multiplier = 3.0
+	q.material = m
+	p.draw_pass_1 = q
+	get_parent().add_child(p)
+	return p
 
 ## FOV punch (degrees) for near misses.
 func kick_fov(deg: float) -> void:

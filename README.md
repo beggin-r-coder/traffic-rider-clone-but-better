@@ -183,6 +183,31 @@ Test flags: `--cash=N`, `--paint=N`, `--bike=r1|h2|zx6r`, `--menu --garage --sho
 
 | Wheelie | Roll off and snap the GAS back on in 1st/2nd below ~100 km/h; keep it pinned to hold it | same with W |
 
+## Race feel
+
+The rider and bike behave like a racing game, not a static model:
+
+- **Tuck**: on fast straights with the throttle open the rider slides back and drops flat onto the
+  tank, head behind the screen. In the cockpit view the camera goes down with the head, and you look
+  over the dash through the screen.
+- **Hang-off**: in corners the hips move off the inside of the seat and angle across it, the upper
+  body and head go inside the bars, and the inside knee opens towards the asphalt. Past ~45° of lean
+  the knee slider touches down: sparks, a quiet scrape, and the lean readout turns orange.
+- **Braking**: the rider sits up out of the tuck with the arms braced; the body is pushed forward by
+  the deceleration (back under acceleration). Braking hard into a bend, the inside leg comes off the
+  peg and swings out and forward, and the body is set up for the corner before turn-in.
+- **Looking through the corner**: the head turns towards the corner (from the road curvature ahead)
+  and the helmet cam turns with it.
+- **Gear shifts**: the left toe flicks up under the lever on each upshift.
+- **Bike**: under hard braking the chassis pitches over the front tyre and the rear goes light,
+  lifting a few centimetres at the limit. Braking hard into a bend makes the rear step out (backing
+  it in) with tyre smoke and skid marks. The front brake disc glows orange after repeated hard
+  stops from high speed and cools down again. Exhaust pops on shifts and on the overrun show a
+  flame at the silencer.
+- **Screen**: radial speed blur with a slight colour fringe above ~190 km/h (medium/high graphics),
+  a lean angle readout, and an optional **Helmet view** (Settings / pause menu): the visor opening of
+  a race helmet framing the screen, with a slight tunnel effect at speed.
+
 ## Scoring and feel
 
 - **Distance score** starts above 100 km/h and scales with speed.
@@ -256,6 +281,7 @@ Pass after `--` on the command line (read via `OS.get_cmdline_user_args()`):
 | `--quality=0/1/2` | graphics quality |
 | `--photo` | close 3/4 camera riding alongside the bike (for screenshots) |
 | `--posetest=DIR` | (with `res://scenes/pose_test.tscn`) render rider pose review images (`--views=a,b --states=cruise,brake` to limit) |
+| `--helmet` | turn on the helmet view |
 | `--risky` | autopilot rides near the lane line so it scores near misses (tests the scoring) |
 | `--bike=r1\|h2\|zx6r` | ride / show that bike (index or id) |
 | `--rider=rpm` | use the older Ready Player Me rider instead of the biker |

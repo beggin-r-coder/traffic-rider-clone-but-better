@@ -21,6 +21,7 @@ var cam_height: float = 0.0           # metres, + = higher
 var cam_forward: float = 0.0          # metres, + = closer to the bars
 var cam_fov: float = 60.0             # degrees
 var cam_pitch: float = -11.0          # degrees, negative = looking down
+var helmet_view: bool = false     # helmet visor frame over the cockpit view
 var assist: bool = true            # steering assist: auto-lean through road curves
 var sfx_volume: float = 0.9
 var quality: int = 1               # 0 low, 1 medium, 2 high
@@ -82,6 +83,8 @@ func _ready() -> void:
 		bike = int(bf) if bf.is_valid_int() else maxi(0, ["r1", "h2", "zx6r"].find(bf))
 	if has_flag("paint"):
 		bike_color = int(flag("paint", "0"))
+	if has_flag("helmet"):
+		helmet_view = true
 	if has_flag("quality"):
 		quality = int(flag("quality", "1"))
 	run_seed = int(flag("seed", str(randi() % 100000)))
@@ -167,6 +170,7 @@ func save() -> void:
 	c.set_value("settings", "cam_height", cam_height)
 	c.set_value("settings", "button_sensitivity", button_sensitivity)
 	c.set_value("settings", "assist", assist)
+	c.set_value("settings", "helmet_view", helmet_view)
 	c.set_value("settings", "sfx_volume", sfx_volume)
 	c.set_value("settings", "quality", quality)
 	c.set_value("progress", "best_scores", best_scores)
@@ -194,6 +198,7 @@ func load_save() -> void:
 	cam_height = c.get_value("settings", "cam_height", cam_height)
 	button_sensitivity = c.get_value("settings", "button_sensitivity", button_sensitivity)
 	assist = c.get_value("settings", "assist", assist)
+	helmet_view = c.get_value("settings", "helmet_view", helmet_view)
 	sfx_volume = c.get_value("settings", "sfx_volume", sfx_volume)
 	quality = c.get_value("settings", "quality", quality)
 	best_scores = c.get_value("progress", "best_scores", {})

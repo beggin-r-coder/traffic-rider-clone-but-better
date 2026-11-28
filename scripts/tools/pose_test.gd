@@ -126,6 +126,9 @@ func run(dir: String) -> void:
 		"throttle": [1.0, 0.0, 0.0, 30.0],
 		"brake": [0.0, 1.0, 0.0, 30.0],
 		"lean": [0.6, 0.0, 0.6, 40.0],
+		"tuck": [1.0, 0.0, 0.0, 75.0, 0.0],
+		"kneedown": [0.5, 0.0, 0.9, 40.0, 1.0],
+		"brakein": [0.0, 1.0, 0.05, 40.0, 0.8],
 	}
 	var gc: Vector3 = rider.GRIP_IN.lerp(rider.GRIP_OUT, 0.5)
 	var pg: Vector3 = rider.PEG
@@ -152,9 +155,12 @@ func run(dir: String) -> void:
 		rider.speed = s[3]
 		bike.set_lean(s[2])
 		rider.lean = s[2]
+		rider.turn_ahead = s[4] if s.size() > 4 else 0.0
+		rider.accel = -9.0 if s[1] > 0.5 else 0.0
 		for i in 40:
 			rider.update_pose(1.0 / 30.0)
 		bike.set_levers(rider.lever_pull, rider.clutch_pull)
+		print("[posetest] %s head_delta=%s yaw=%.1f" % [st, rider.head_delta().snapped(Vector3.ONE * 0.01), rad_to_deg(rider.head_yaw())])
 		if bike.dash:
 			bike.dash.set_values(s[3] * 3.6, 6000.0 + s[0] * 7200.0, 3)
 		var only: Array = String(Game.flag("views", "")).split(",", false)
@@ -183,10 +189,11 @@ func run(dir: String) -> void:
 		if not only.is_empty() and not "fp" in only:
 			continue
 		rider.set_first_person(true)
-		for variant in [[rider.fp_camera_position(), -11.0, "a"]]:
+		for variant in [[rider.fp_camera_position() + rider.head_delta() * Vector3(0.6, 0.75, 0.9), -11.0 + 8.0 * rider._tuck, "a"]]:
 			var eye: Vector3 = bike.lean_node.global_transform * variant[0]
 			cam.fov = 62.0
-			cam.global_transform = Transform3D(bike.lean_node.global_transform.basis * Basis(Vector3.RIGHT, deg_to_rad(variant[1])), eye)
+			var roll := Basis(Vector3.BACK, bike.lean_node.rotation.z * -0.58)
+			cam.global_transform = Transform3D(bike.lean_node.global_transform.basis * Basis(Vector3.UP, -rider.head_yaw() * 0.6) * roll * Basis(Vector3.RIGHT, deg_to_rad(variant[1])), eye)
 			var pitch: float = variant[1]
 			await RenderingServer.frame_post_draw
 			await RenderingServer.frame_post_draw

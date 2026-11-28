@@ -62,6 +62,7 @@ func _ready() -> void:
 		var model: Node3D = MODEL.instantiate()
 		lean_node.add_child(model)
 		_setup_model(model)
+	_find_race_parts()
 
 func _setup_model(model: Node3D) -> void:
 	var meshes: Array[MeshInstance3D] = []
@@ -644,6 +645,112 @@ func set_wet_speed(v01: float) -> void:
 		top_sim.max_speed = lerpf(10.0, 2400.0, v01)
 		if _body_frame % 2 == 1:
 			top_sim.step(dt)
+
+# --- race effects: glowing brake disc, exhaust flames ---
+var exhaust_tip := Vector3(0.2, 0.45, 0.85)   # bike space (leaning frame)
+var _disc_mats: Array[StandardMaterial3D] = []
+var _disc_heat := 0.0
+var _flame: MeshInstance3D
+var _flame_mat: StandardMaterial3D
+var _flame_t := 0.0
+
+func _find_race_parts() -> void:
+	var all: Array[MeshInstance3D] = []
+	_collect(lean_node, all)
+	var ex_m: Array = def.get("exhaust_mats", [])
+	var ex_n: Array = def.get("exhaust_meshes", [])
+	var dc_m: Array = def.get("disc_mats", [])
+	var dc_n: Array = def.get("disc_meshes", [])
+	var ex_box := AABB()
+	var have_ex := false
+	var done := {}
+	for mi in all:
+		if mi.mesh == null:
+			continue
+		var mname := _mat_name(mi)
+		var xf := _rel_xform_to(mi, lean_node)
+		if String(mi.name) in ex_n or mname in ex_m:
+			var ab: AABB = xf * mi.mesh.get_aabb()
+			if ab.get_center().x > 0.0 or not have_ex:     # the right-hand silencer
+				ex_box = ab if not have_ex else ex_box.merge(ab)
+				have_ex = true
+		var is_disc := String(mi.name) in dc_n or mname in dc_m
+		# Front disc only (the one that does the work): R1 discs are split into _F/_R halves.
+		if is_disc and (mi.get_parent() == front_wheel or not mname in dc_m):
+			for si in mi.mesh.get_surface_count():
+				var src := mi.get_active_material(si) as BaseMaterial3D
+				if src == null:
+					continue
+				var m: StandardMaterial3D = done.get(src)
+				if m == null:
+					m = (src as BaseMaterial3D).duplicate() if src is StandardMaterial3D else StandardMaterial3D.new()
+					m.emission_enabled = true
+					m.emission = Color(1.0, 0.32, 0.05)
+					m.emission_energy_multiplier = 0.0
+					done[src] = m
+					_disc_mats.append(m)
+				mi.set_surface_override_material(si, m)
+	if have_ex:
+		exhaust_tip = Vector3(ex_box.get_center().x, ex_box.position.y + ex_box.size.y * 0.62, ex_box.end.z)
+	# Flame: an additive, camera-facing glow that flickers at the silencer outlet.
+	_flame_mat = StandardMaterial3D.new()
+	_flame_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_flame_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_flame_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	_flame_mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	_flame_mat.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
+	var g := Gradient.new()
+	g.set_color(0, Color(1.0, 0.95, 0.75, 1.0))
+	g.add_point(0.35, Color(1.0, 0.5, 0.1, 0.8))
+	g.set_color(g.get_point_count() - 1, Color(0.8, 0.15, 0.02, 0.0))
+	var gt := GradientTexture2D.new()
+	gt.gradient = g
+	gt.fill = GradientTexture2D.FILL_RADIAL
+	gt.fill_from = Vector2(0.5, 0.5)
+	gt.fill_to = Vector2(1.0, 0.5)
+	_flame_mat.albedo_texture = gt
+	_flame = MeshInstance3D.new()
+	var q := QuadMesh.new()
+	q.size = Vector2(0.16, 0.16)
+	_flame.mesh = q
+	_flame.material_override = _flame_mat
+	_flame.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_flame.visible = false
+	lean_node.add_child(_flame)
+
+func _rel_xform_to(n: Node3D, root: Node3D) -> Transform3D:
+	var t := Transform3D.IDENTITY
+	var cur: Node = n
+	while cur != null and cur != root:
+		if cur is Node3D:
+			t = (cur as Node3D).transform * t
+		cur = cur.get_parent()
+	return t
+
+## Exhaust pop: a short flame out of the silencer (after `delay` seconds).
+func flame(delay: float = 0.0, strength: float = 1.0) -> void:
+	if _flame == null:
+		return
+	if delay > 0.0:
+		get_tree().create_timer(delay).timeout.connect(func(): flame(0.0, strength))
+		return
+	_flame_t = 0.07 + 0.05 * strength
+	_flame.scale = Vector3.ONE * (0.8 + 0.7 * strength)
+
+## Brake heat 0..1 from braking hard at speed; the front disc glows past ~half.
+func update_race_fx(dt: float, brake: float, speed: float) -> void:
+	var heat_in := brake * brake * clampf(speed / 60.0, 0.0, 1.0)
+	_disc_heat = clampf(_disc_heat + (heat_in * 0.9 - 0.18 * _disc_heat - 0.02) * dt, 0.0, 1.0)
+	var glow := smoothstep(0.35, 1.0, _disc_heat)
+	for m in _disc_mats:
+		m.emission_energy_multiplier = glow * 2.5
+		m.emission = Color(1.0, 0.25 + 0.25 * glow, 0.04)
+	if _flame:
+		_flame_t -= dt
+		_flame.visible = _flame_t > 0.0
+		if _flame.visible:
+			_flame.position = exhaust_tip + Vector3(0, 0, 0.04 + randf() * 0.03)
+			_flame_mat.albedo_color = Color(1, 1, 1, clampf(_flame_t * 12.0, 0.0, 1.0))
 
 func set_brake_light(on: bool) -> void:
 	for m in _taillight_mats:

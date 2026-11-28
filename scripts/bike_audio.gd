@@ -134,11 +134,14 @@ func _mix_set(players: Array[AudioStreamPlayer], rpms: Array[float], rpm: float,
 		players[k].volume_db = -80.0 if g < 0.001 else linear_to_db(g) + gain_db
 		players[k].pitch_scale = clampf(rpm / rpms[k], 0.5, 2.0)
 
+signal popped(delay: float, strength: float)
+
 func pop(vol_db: float = 0.0, delay: float = 0.0) -> void:
-	if pop_streams.is_empty():
-		return
 	if delay > 0.0:
 		_pending_pops.append([delay, vol_db])
+		return
+	popped.emit(0.0, clampf((vol_db + 14.0) / 12.0, 0.15, 1.0))
+	if pop_streams.is_empty():
 		return
 	for pp in pop_players:
 		if not pp.playing:
@@ -255,7 +258,8 @@ func update(r: Rider, dt: float) -> void:
 	_lp_wind.cutoff_hz = 400.0 + sp * 45.0
 	roar.volume_db = linear_to_db(clampf(sp / 60.0, 0.0, 1.0) * 0.35 + 0.001) - 6.0
 	roar.pitch_scale = 0.7 + sp / 90.0
-	scrape.volume_db = -80.0 if r.scrape < 0.3 else linear_to_db(r.scrape * 0.6)
+	var scr := maxf(r.scrape * 0.6, r.knee_scrape * 0.22)      # knee slider on the asphalt is quieter
+	scrape.volume_db = -80.0 if scr < 0.1 else linear_to_db(scr)
 	if raining:
 		rain_player.volume_db = -11.0
 		rain_player.pitch_scale = 1.0

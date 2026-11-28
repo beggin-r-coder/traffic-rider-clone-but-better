@@ -88,6 +88,15 @@ var _brk_pull := 0.0
 var _hang := 0.0
 var _tuck := 0.0
 var _pitch_extra := 0.0
+# Race-style body states (smoothed 0..1 unless noted):
+var turn_ahead := 0.0      # input: upcoming bend, -1 left .. +1 right (set by Rider)
+var accel := 0.0           # input: longitudinal acceleration (m/s^2)
+var _situp := 0.0          # braking: out of the tuck, arms braced
+var _leg_out := 0.0        # signed: inside leg off the peg while braking into a bend (+ right)
+var _look := 0.0           # head yaw towards the corner exit (-1..1)
+var _surge := 0.0          # smoothed accel for body sway
+var knee_drag := {1.0: false, -1.0: false}   # knee slider on the asphalt (set by Rider)
+var _head_rest := Vector3.ZERO     # head position in the neutral seated pose
 var frozen := false
 var lever_pull := 0.0      # current brake lever pull (for the bike's lever mesh)
 var clutch_pull := 0.0
@@ -138,6 +147,7 @@ func _ready() -> void:
 		_side[side] = d
 	_measure_rig()
 	update_pose(1.0)
+	_head_rest = head_position()
 
 ## Rig facts that are not in the bone list: finger/thumb tips (rigs without tip bones), the toe
 ## (rigs without toe bones) and the across-the-knuckles direction of each hand.
@@ -441,8 +451,24 @@ func update_pose(dt: float) -> void:
 	_thr_s = lerpf(_thr_s, throttle, k)
 	_brk_cover = move_toward(_brk_cover, 1.0 if brake > 0.04 else 0.0, dt * 9.0)
 	_brk_pull = lerpf(_brk_pull, brake, k)
-	_hang = lerpf(_hang, clampf(lean / 0.85, -1.0, 1.0), 1.0 - exp(-6.0 * dt))
-	_tuck = lerpf(_tuck, clampf((speed - 25.0) / 45.0, 0.0, 1.0), 1.0 - exp(-2.0 * dt))
+	# Hang-off follows the lean, and starts early when braking for a bend (body set before turn-in).
+	var hang_t := clampf(lean / 0.75, -1.0, 1.0)
+	if brake > 0.3 and absf(turn_ahead) > 0.2 and absf(hang_t) < 0.5:
+		hang_t = turn_ahead * 0.5
+	_hang = lerpf(_hang, hang_t, 1.0 - exp(-5.0 * dt))
+	# Full tuck on fast straights with the throttle open; out of it on the brakes or leaned over.
+	var tuck_t := clampf((speed - 30.0) / 22.0, 0.0, 1.0) * clampf(1.0 - absf(lean) / 0.3, 0.0, 1.0)
+	if throttle < 0.25 or brake > 0.1:
+		tuck_t *= 0.25
+	_tuck = lerpf(_tuck, tuck_t, 1.0 - exp(-(4.0 if tuck_t < _tuck else 2.2) * dt))
+	_situp = lerpf(_situp, clampf((brake - 0.2) / 0.5, 0.0, 1.0) * clampf(speed / 15.0, 0.0, 1.0), 1.0 - exp(-7.0 * dt))
+	# Leg dangle: hard braking into a bend, inside foot off the peg; tucked back in as the lean builds.
+	var leg_t := 0.0
+	if brake > 0.45 and speed > 20.0 and absf(turn_ahead) > 0.25 and absf(lean) < 0.35:
+		leg_t = signf(turn_ahead)
+	_leg_out = move_toward(_leg_out, leg_t, dt * (3.0 if leg_t != 0.0 else 2.2))
+	_look = lerpf(_look, clampf(turn_ahead * 1.2 + lean * 0.6, -1.0, 1.0), 1.0 - exp(-4.0 * dt))
+	_surge = lerpf(_surge, clampf(accel, -12.0, 9.0), 1.0 - exp(-6.0 * dt))
 	_fk_all()
 	var up := Vector3.UP
 	var fwd := Vector3(0, 0, 1)          # skeleton space forward
@@ -450,7 +476,11 @@ func update_pose(dt: float) -> void:
 	var spine: Array = (prof["spine"] as Array).map(func(b): return _b[b])
 
 	# --- pelvis on the seat, tilted forward; hang off the inside in corners ---
-	var hip_target := _sk(SEAT) + up * float(prof["seat_lift"]) + Vector3(-_hang * 0.11, -absf(_hang) * 0.015, 0)
+	# Off the inside of the seat when hanging off; slid back for the tuck; shoved forward against the
+	# tank by braking, pressed back by acceleration.
+	var hip_target := _sk(SEAT) + up * float(prof["seat_lift"]) + Vector3(-_hang * 0.17, -absf(_hang) * 0.03, 0)
+	hip_target += Vector3(0, -0.01 * _tuck, -0.05 * _tuck)
+	hip_target += Vector3(0, 0, 0.004 * maxf(-_surge, 0.0) - 0.002 * maxf(_surge, 0.0))
 	_move(hips, hip_target - _g[hips].origin)
 	var base_pitch := deg_to_rad(42.0 + 8.0 * _tuck)
 	_rot(hips, Vector3.RIGHT, base_pitch, _g[hips].origin)
@@ -465,9 +495,11 @@ func update_pose(dt: float) -> void:
 	var want := _target_pitch_extra(hips)
 	_pitch_extra = want if dt >= 0.5 else lerpf(_pitch_extra, want, 1.0 - exp(-8.0 * dt))
 	_rot(hips, Vector3.RIGHT, _pitch_extra, _g[hips].origin)
-	_rot(hips, fwd, deg_to_rad(_hang * 10.0), _g[hips].origin)
-	# Lean the upper body a little into the turn.
-	_rot(spine[1], fwd, deg_to_rad(_hang * 9.0), _g[spine[1]].origin)
+	_rot(hips, fwd, deg_to_rad(_hang * 14.0), _g[hips].origin)
+	# Hips angled across the seat, upper body leaning in further: head and shoulders inside the bar.
+	_rot(hips, up, deg_to_rad(-_hang * 10.0), _g[hips].origin)
+	_rot(spine[1], fwd, deg_to_rad(_hang * 14.0), _g[spine[1]].origin)
+	_rot(spine[2], fwd, deg_to_rad(_hang * 8.0), _g[spine[2]].origin)
 
 	# --- head up, eyes level, looking a touch into the turn ---
 	var torso_pitch := 42.0 + 8.0 * _tuck + 18.0 + 9.0 * _tuck + rad_to_deg(_pitch_extra)
@@ -475,8 +507,11 @@ func update_pose(dt: float) -> void:
 	var head := _bi(prof["head"])
 	_rot(neck, Vector3.RIGHT, deg_to_rad(-torso_pitch * 0.55), _g[neck].origin)
 	_rot(head, Vector3.RIGHT, deg_to_rad(-torso_pitch * float(prof.get("head_comp", 0.38))), _g[head].origin)
-	_rot(head, up, deg_to_rad(-steer * 8.0 - _hang * 6.0), _g[head].origin)
-	_rot(head, fwd, deg_to_rad(-_hang * 12.0), _g[head].origin)
+	# Look through the corner, eyes levelled against the lean.
+	_rot(head, up, deg_to_rad(-steer * 5.0 - _look * 22.0), _g[head].origin)
+	_rot(head, fwd, deg_to_rad(-_hang * 18.0), _g[head].origin)
+	# Tucked: chin down to the tank, eyes lifted to see over the screen.
+	_rot(head, Vector3.RIGHT, deg_to_rad(-10.0 * _tuck), _g[head].origin)
 
 	# --- arms + hands ---
 	for side: float in [1.0, -1.0]:
@@ -494,14 +529,15 @@ func _target_pitch_extra(hips: int) -> float:
 	var d: Dictionary = _side[1.0]
 	var l_arm := (_g[d["fore"]].origin - _g[d["arm"]].origin).length() + (_g[d["hand"]].origin - _g[d["fore"]].origin).length()
 	var grip := _sk(GRIP_IN.lerp(GRIP_OUT, 0.48))
-	var want := l_arm * 0.86 + 0.035      # wrist sits a few cm behind the grip centre
+	# Tucked: shoulders down near the bars (elbows bent in); braking: arms near straight, braced.
+	var want := l_arm * (0.86 - 0.17 * _tuck + 0.07 * _situp) + 0.035   # wrist a few cm behind the grip centre
 	var hp := _g[hips].origin
 	var sh := _g[d["arm"]].origin
 	# Shoulder moves on a circle about the hip joint (pitch axis = X). Search the pitch numerically.
 	var best := 0.0
 	var best_err := 1e9
-	for i in 41:
-		var a := deg_to_rad(-14.0 + i * 0.7)
+	for i in 61:
+		var a := deg_to_rad(-16.0 + i * 0.7)
 		var p := hp + Basis(Vector3.RIGHT, a) * (sh - hp)
 		var err := absf(p.distance_to(grip) - want)
 		if err < best_err:
@@ -669,9 +705,23 @@ func _pose_leg(side: float) -> void:
 	# Rigs with a toe bone: that joint is the ball of the foot. Otherwise the ball is ~72% of the
 	# way from the ankle to the toe tip.
 	var ball_len := toe_len if sd["toe"] >= 0 else toe_len * 0.72
+	# Upshift: the left toe flicks up under the gear lever.
+	if side < 0.0 and clutch > 0.0:
+		want_f = (want_f + Vector3.UP * 0.35 * clutch).normalized()
 	var ball := peg + out * 0.02 + Vector3.UP * 0.035
 	var ankle := ball - want_f * ball_len + Vector3.UP * 0.02
-	var pole := (Vector3(0, 0, 1) * 0.95 + out * (-0.08 + inside * absf(_hang) * 0.9) + Vector3.UP * 0.25).normalized()
+	# Inside knee opens out towards the asphalt when hanging off.
+	var knee_out := -0.08 + inside * absf(_hang) * 1.6
+	var pole := (Vector3(0, 0, 1) * 0.95 + out * knee_out + Vector3.UP * 0.25 - Vector3.UP * inside * absf(_hang) * 0.4).normalized()
+	# Braking into a bend: inside foot off the peg, leg swung out and forward, toe pointing down.
+	var dangle := maxf(_leg_out * side, 0.0)
+	if dangle > 0.0:
+		var e := dangle * dangle * (3.0 - 2.0 * dangle)
+		var free_f := (Vector3(0, 0, 1) * 0.75 + Vector3.DOWN * 0.45 + out * 0.35).normalized()
+		want_f = want_f.lerp(free_f, e).normalized()
+		var ankle_free := peg + out * 0.33 + Vector3(0, 0, 1) * 0.24 + Vector3.UP * 0.04
+		ankle = ankle.lerp(ankle_free, e)
+		pole = pole.lerp((out * 1.0 + Vector3(0, 0, 1) * 0.6 + Vector3.UP * 0.3).normalized(), e).normalized()
 	_two_bone(up_leg, leg, foot, ankle, pole)
 	_move(foot, ankle - _g[foot].origin)
 	var cur_f := _toe_pt(sd) - _g[foot].origin
@@ -679,6 +729,25 @@ func _pose_leg(side: float) -> void:
 	# Toes flat-ish on the peg rather than pointing down.
 	if sd["toe"] >= 0 and sd["toe_end"] >= 0:
 		_aim(sd["toe"], sd["toe_end"], _g[sd["toe"]].origin + (Vector3(0, 0, 1) + out * 0.1).normalized() * 0.1)
+
+## Knee slider point (outside-front of the knee) in the bike's leaning frame, for knee-down sparks.
+func knee_point(side: float) -> Vector3:
+	var sd: Dictionary = _side[side]
+	var k := _g[sd["leg"]].origin + Vector3(-side * 0.06, -0.02, 0.07)
+	return Vector3(-k.x, k.y, -k.z)
+
+## Head position (bike leaning frame) for the helmet camera.
+func head_position() -> Vector3:
+	var h := _g[_bi(prof["head"])].origin
+	return Vector3(-h.x, h.y, -h.z)
+
+## Head movement relative to the neutral seated pose (tuck down, hang-off sideways, braking).
+func head_delta() -> Vector3:
+	return head_position() - _head_rest
+
+## How far the head is turned towards the corner (radians, + = right) for the helmet camera.
+func head_yaw() -> float:
+	return deg_to_rad(steer * 5.0 + _look * 22.0)
 
 ## Thrown off in a crash: arms and legs flail while airborne and go limp, sprawled, once the rider
 ## is sliding on the ground. `t` = seconds since the crash, `ground` = 0 airborne .. 1 on the ground.

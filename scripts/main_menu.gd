@@ -277,6 +277,7 @@ func _build_settings() -> void:
 	_slider_row(grid, "Look down", -22.0, -2.0, func(): return Game.cam_pitch, func(x): Game.cam_pitch = x)
 	_cycle_row(grid, "Graphics", ["Low", "Medium", "High"], func(): return Game.quality, func(i): Game.quality = i)
 	_slider_row(grid, "Volume", 0.0, 1.0, func(): return Game.sfx_volume, func(x): Game.sfx_volume = x)
+	_cycle_row(grid, "Helmet view", ["Off", "On"], func(): return 1 if Game.helmet_view else 0, func(i): Game.helmet_view = i == 1)
 	var back := _button("Done", Color(0.88, 0.5, 0.04), 28)
 	back.custom_minimum_size = Vector2(300, 64)
 	back.pressed.connect(func(): _show_settings(false))

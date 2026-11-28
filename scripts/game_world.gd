@@ -120,6 +120,7 @@ func _ready() -> void:
 	audio = BikeAudio.new()
 	audio.name = "Audio"
 	add_child(audio)
+	audio.popped.connect(func(dl: float, st: float): rider.bike.flame(dl, st))
 	hud = Hud.new()
 	hud.name = "HUD"
 	add_child(hud)
@@ -728,9 +729,10 @@ func _harness(dt: float) -> void:
 		var mk := _max_k
 		_max_lean = 0.0
 		_max_k = 0.0
-		print("[autotest] stage=%d t=%.1f state=%d s=%.0f d=%.2f kmh=%.0f gear=%d rpm=%.0f lean=%.1f maxlean=%.0f minR=%.0f score=%d near=%d cars=%d chunks=%d fps=%.0f" % [
+		print("[autotest] stage=%d t=%.1f state=%d s=%.0f d=%.2f kmh=%.0f gear=%d rpm=%.0f lean=%.1f maxlean=%.0f minR=%.0f score=%d near=%d cars=%d chunks=%d fps=%.0f knee=%.2f" % [
 			_auto_stage, _sim_time, state, rider.s, rider.d, rider.kmh(), rider.gear, rider.rpm,
-			rad_to_deg(rider.lean), rad_to_deg(ml), 1.0 / maxf(mk, 1e-5), int(score), near_misses, traffic.cars.size(), road.chunk_count(), Engine.get_frames_per_second()])
+			rad_to_deg(rider.lean), rad_to_deg(ml), 1.0 / maxf(mk, 1e-5), int(score), near_misses, traffic.cars.size(), road.chunk_count(), Engine.get_frames_per_second(), rider.knee_min_h])
+		rider.knee_min_h = 9.0
 	if _shot_path != "" and _sim_time >= _shot_at:
 		var p := _shot_path
 		_shot_path = ""

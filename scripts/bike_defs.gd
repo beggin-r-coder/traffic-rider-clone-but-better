@@ -20,6 +20,8 @@ const LIST := [
 		"lever_pivot": Vector3(0.238, 0.952, -0.494),
 		"peg": Vector3(0.245, 0.455, 0.340), "seat": Vector3(0.0, 0.925, 0.35),
 		"mirror_cam": Vector3(0.0, 1.22, -0.25),
+		"exhaust_mats": ["Muffler", "Muffler-Aluminum"],
+		"disc_mats": ["Brake_Discs"],
 	},
 	{
 		"id": "h2",
@@ -66,6 +68,8 @@ const LIST := [
 		"peg": Vector3(0.235, 0.405, 0.265), "seat": Vector3(0.0, 0.84, 0.35),
 		"dash": {"center": Vector3(0.0, 0.985, -0.55), "size": Vector2(0.17, 0.066), "tilt": 52.0},
 		"mirror_cam": Vector3(0.0, 1.13, -0.25),
+		"exhaust_meshes": ["Mesh_0001_rip"],
+		"disc_meshes": ["Mesh_0014_rip"],
 	},
 	{
 		"id": "zx6r",
@@ -94,6 +98,8 @@ const LIST := [
 		"peg": Vector3(0.225, 0.37, 0.29), "seat": Vector3(0.0, 0.868, 0.37),
 		"dash": {"decal_mesh": "Dashboard_001", "style": "zx6r"},
 		"mirror_cam": Vector3(0.0, 1.12, -0.25),
+		"exhaust_meshes": ["Exhaust"],
+		"disc_meshes": ["Brakes Too"],
 	},
 ]
 
