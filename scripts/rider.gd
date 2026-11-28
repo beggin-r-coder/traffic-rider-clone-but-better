@@ -84,6 +84,7 @@ var _acc_s := 0.0         # smoothed longitudinal acceleration (camera pitch)
 var _shift_kick := 0.0    # head nod on upshift
 var _fov_kick := 0.0      # FOV punch (near misses)
 var _cam_roll := 0.0      # head roll, lags the bike's lean
+var _dive := 0.0          # rad: fork compression pitch (nose down)
 var stoppie := 0.0        # rad: chassis pitched over the front tyre under hard braking (rear goes light)
 var rear_slide := 0.0     # rad: rear stepping out when braking hard into a bend (+ = rear to the right)
 var tyre_fx := 0.0        # 0..1 smoke / skid intensity
@@ -267,12 +268,14 @@ func _steering(dt: float, k_road: float) -> void:
 	if assist:
 		# Steering assist: input selects a heading relative to the road (i.e. a lateral speed);
 		# road curvature is fed forward so the bike leans through bends by itself.
-		var lat_max := lerpf(3.0, 7.0, clampf(v / 30.0, 0.0, 1.0))
+		var lat_max := lerpf(3.0, 5.5, clampf(v / 30.0, 0.0, 1.0))
 		var psi_max := asin(clampf(lat_max / vv, 0.0, 0.6))
 		var psi_t := steer * psi_max
-		# Gentle centring keeps the bike off the rails when the player lets go near the edge.
-		var a_lat_max := 7.0 * handling_mult * grip
-		var k_corr := clampf((psi_t - psi) * 2.7 / vv, -a_lat_max / (vv * vv), a_lat_max / (vv * vv))
+		# Lane changes / swerves: lateral acceleration capped near what a rider uses on the road
+		# (~4 m/s^2 = ~22 deg of lean, a little more with Handling upgrades). Bends add their own lean
+		# through the curvature feed-forward, so corners still lean as far as they need.
+		var a_lat_max := 4.0 * handling_mult * grip
+		var k_corr := clampf((psi_t - psi) * 2.2 / vv, -a_lat_max / (vv * vv), a_lat_max / (vv * vv))
 		kappa_des = k_road + k_corr
 		lean_target = atan(vv * vv * kappa_des / G)
 	else:
@@ -408,25 +411,33 @@ func update_visuals(dt: float) -> void:
 	# Squat under acceleration (about the rear contact patch).
 	var pitch := maxf(wheelie, 0.0) * 0.02
 	t.basis = t.basis * Basis(Vector3.RIGHT, pitch)
-	# Hard braking: the chassis pitches forward over the front tyre and the rear goes light,
-	# lifting a few centimetres at the limit from high speed.
+	# Suspension: braking compresses the forks (nose down, pivoting about the rear contact patch)
+	# while the front wheel stays on the road, i.e. the wheel rises into the fender. Only at the
+	# very limit from high speed does the rear go light and lift a little (pivot at the front).
+	var dive_t := deg_to_rad(2.0) * clampf(brake * 1.2, 0.0, 1.0) * clampf(v / 12.0, 0.0, 1.0)
+	dive_t -= deg_to_rad(0.6) * clampf(throttle, 0.0, 1.0) * clampf(accel / 6.0, 0.0, 1.0)  # fork extends on the gas
+	_dive = lerpf(_dive, dive_t, 1.0 - exp(-(9.0 if dive_t > _dive else 5.0) * dt))
 	var st_t := 0.0
-	if brake > 0.6 and v > 15.0:
-		st_t = deg_to_rad(1.0 + 2.2 * smoothstep(0.8, 1.0, brake) * clampf((v - 15.0) / 30.0, 0.0, 1.0))
-	stoppie = lerpf(stoppie, st_t, 1.0 - exp(-(6.0 if st_t > stoppie else 4.0) * dt))
-	# Backing it in: braking hard with the bike nearly upright before a bend, the rear steps out
-	# towards the outside of the corner (visual yaw about the front contact patch).
+	if brake > 0.97 and v > 40.0:
+		st_t = deg_to_rad(1.1) * clampf((v - 40.0) / 20.0, 0.0, 1.0)
+	stoppie = lerpf(stoppie, st_t, 1.0 - exp(-(4.0 if st_t > stoppie else 6.0) * dt))
+	# Backing it in: only braking really hard into a real bend with the bike still upright.
 	var turn: float = model.turn_ahead if model else 0.0
 	var sl_t := 0.0
-	if brake > 0.75 and v > 20.0 and absf(turn) > 0.3 and absf(lean) < 0.45:
-		sl_t = -signf(turn) * deg_to_rad(7.0) * clampf((brake - 0.75) / 0.25, 0.0, 1.0)
-	rear_slide = lerpf(rear_slide, sl_t, 1.0 - exp(-3.5 * dt))
+	if brake > 0.92 and v > 30.0 and absf(turn) > 0.6 and absf(lean) < 0.3:
+		sl_t = -signf(turn) * deg_to_rad(3.5)
+	rear_slide = lerpf(rear_slide, sl_t, 1.0 - exp(-2.5 * dt))
+	var rear := Vector3(0, 0, bike.wheelbase * 0.5)
 	var front := Vector3(0, 0, -bike.wheelbase * 0.5)
 	var t_cam := t
+	if absf(_dive) > 0.0002:
+		var db := Basis(Vector3.RIGHT, -_dive)
+		t = t * Transform3D(db, rear - db * rear)
+		t_cam = t
+	bike.set_front_compression(bike.wheelbase * sin(_dive))
 	if stoppie > 0.0005 or absf(rear_slide) > 0.0005:
 		var sb := Basis(Vector3.UP, rear_slide) * Basis(Vector3.RIGHT, -stoppie)
 		t = t * Transform3D(sb, front - sb * front)
-		# The helmet cam feels the pitch but keeps looking down the road while the rear slides.
 		var cb := Basis(Vector3.RIGHT, -stoppie * 0.7)
 		t_cam = t_cam * Transform3D(cb, front - cb * front)
 	# Tyre smoke / skid marks when the rear slides or the brakes are at the limit at speed.
@@ -442,7 +453,6 @@ func update_visuals(dt: float) -> void:
 	bike.update_race_fx(dt, brake, v)
 	if wheelie_angle > 0.001:
 		# Pivot about the rear tyre's contact patch.
-		var rear := Vector3(0, 0, bike.wheelbase * 0.5)
 		var wb := Basis(Vector3.RIGHT, wheelie_angle)
 		t = t * Transform3D(wb, rear - wb * rear)
 		# The camera follows most of it (you see sky, but can still see the road ahead).
@@ -592,29 +602,39 @@ func _make_knee_sparks() -> GPUParticles3D:
 func kick_fov(deg: float) -> void:
 	_fov_kick = maxf(_fov_kick, deg)
 
+## Follow camera (racing-game style): behind and above the bike on its path, yaw following the
+## direction of travel with a little lag, horizon kept nearly level (the bike leans in the frame,
+## the world doesn't), pulling back slightly with speed. The bike sits in the lower-middle of the frame.
+var _chase_yaw_dir := Vector3.FORWARD
+var _chase_roll := 0.0
+var _chase_dist := 2.6
+
 func _update_chase_camera(t: Transform3D, dt: float) -> void:
-	var back := 2.05 + clampf(v / 80.0, 0.0, 1.0) * 0.45
-	var up := 1.2
-	var target := Transform3D(t.basis * Basis(Vector3.BACK, -lean * 0.25), t.origin + t.basis.y * up + t.basis.z * back)
+	var road_t := road.xform(s, d)
+	var up := road_t.basis.y.normalized()
+	var travel := (-t.basis.z).normalized()          # bike heading (road heading + psi)
 	if not _chase_init:
-		_chase_xf = target
-		_chase_prev_bike = t.origin
+		_chase_yaw_dir = travel
+		_chase_roll = 0.0
 		_chase_init = true
-	# Smooth the camera's offset from the bike (not its world position), so it doesn't trail
-	# further behind the faster you go.
-	var rel_now := _chase_xf.origin - _chase_prev_bike
-	var rel_target := target.origin - t.origin
-	_chase_xf.origin = t.origin + rel_now.lerp(rel_target, 1.0 - exp(-10.0 * dt))
-	_chase_prev_bike = t.origin
-	_chase_xf.basis = _chase_xf.basis.slerp(target.basis.orthonormalized(), 1.0 - exp(-8.0 * dt))
-	var look_at_p := t.origin + t.basis.y * 0.95 - t.basis.z * 6.0
-	var xf := _chase_xf.looking_at(look_at_p, _chase_xf.basis.y)
-	var sh := _shake_vec(_cam_shake * 0.05)
+	# Heading follows with lag: in a lane change the bike moves across the frame a little and
+	# the camera catches up, instead of the camera swinging around the bike.
+	_chase_yaw_dir = _chase_yaw_dir.slerp(travel, 1.0 - exp(-4.0 * dt)).normalized()
+	var fwd := (_chase_yaw_dir - up * _chase_yaw_dir.dot(up)).normalized()
+	_chase_dist = lerpf(_chase_dist, 2.55 + clampf(v / 80.0, 0.0, 1.0) * 0.45, 1.0 - exp(-2.0 * dt))
+	var pivot := road.point(s, d) + up * 0.7
+	var eye := pivot - fwd * _chase_dist + up * (0.55 + clampf(v / 80.0, 0.0, 1.0) * 0.05)
+	var target := pivot + fwd * 3.0 + up * 0.2
+	# A touch of roll with the lean (about 10%), smoothed.
+	_chase_roll = lerpf(_chase_roll, -lean * 0.1, 1.0 - exp(-3.0 * dt))
+	var xf := Transform3D(Basis(), eye).looking_at(target, up)
+	xf.basis = xf.basis * Basis(Vector3.BACK, _chase_roll)
+	var sh := _shake_vec(_cam_shake * 0.05 + 0.0012 * clampf(v / 80.0, 0.0, 1.0))
 	xf.origin += xf.basis.x * sh.x + xf.basis.y * sh.y
 	camera.global_transform = xf
-	var target_fov := 58.0 + 14.0 * clampf((v - 15.0) / 70.0, 0.0, 1.0)
+	var target_fov := 56.0 + 10.0 * clampf((v - 15.0) / 70.0, 0.0, 1.0)
 	_fov = lerpf(_fov, target_fov, 1.0 - exp(-3.0 * dt))
-	camera.fov = _fov
+	camera.fov = _fov + _fov_kick * 0.5
 
 func _update_crash_camera(dt: float) -> void:
 	# Camera is thrown up and back, then watches the sliding bike.

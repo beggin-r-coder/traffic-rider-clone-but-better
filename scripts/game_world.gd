@@ -441,7 +441,7 @@ func _step(dt: float) -> void:
 
 func _read_input(dt: float) -> void:
 	if autopilot:
-		_autopilot()
+		_autopilot(dt)
 		return
 	var t := hud.throttle_input()
 	var b := hud.brake_input()
@@ -668,7 +668,7 @@ func _unhandled_input(e: InputEvent) -> void:
 
 # ------------------------------------------------------------------ autopilot & test harness
 
-func _autopilot() -> void:
+func _autopilot(dt: float = 1.0 / 60.0) -> void:
 	var lanes := [-1.5, -0.5, 0.5, 1.5]
 	var best_d := _auto_lane
 	var best_score := -1e9
@@ -695,7 +695,9 @@ func _autopilot() -> void:
 		# Test rider who passes close: ride near the lane line on the road-centre side.
 		aim -= signf(_auto_lane) * 1.15
 	var err := aim - rider.d
-	rider.steer = clampf(err * 0.55, -1.0, 1.0)
+	# Steer like a person: progressive inputs, not bang-bang between full left and full right.
+	var want := clampf(err * 0.45 - rider.psi * 1.5, -0.8, 0.8)
+	rider.steer = move_toward(rider.steer, want, dt * 2.2)
 	var gap_here := traffic.gap_ahead(rider.s, rider.d, 0.7)
 	var closing_here := traffic.closing_speed_ahead(rider.s, rider.d, 0.7, rider.v)
 	var need := closing_here * closing_here / (14.0 * rider.grip) + closing_here * 0.6 + 8.0

@@ -187,26 +187,35 @@ Test flags: `--cash=N`, `--paint=N`, `--bike=r1|h2|zx6r`, `--menu --garage --sho
 
 The rider and bike behave like a racing game, not a static model:
 
-- **Tuck**: on fast straights with the throttle open the rider slides back and drops flat onto the
-  tank, head behind the screen. In the cockpit view the camera goes down with the head, and you look
+- **Tuck**: on fast straights (after holding the throttle for a moment) the rider slides back and
+  drops flat onto the tank, head behind the screen, and stays tucked through brief throttle lifts. In the cockpit view the camera goes down with the head, and you look
   over the dash through the screen.
-- **Hang-off**: in corners the hips move off the inside of the seat and angle across it, the upper
-  body and head go inside the bars, and the inside knee opens towards the asphalt. Past ~45° of lean
-  the knee slider touches down: sparks, a quiet scrape, and the lean readout turns orange.
+- **Body position in levels**, picked from the *sustained* lean (quick direction changes in traffic
+  don't make the rider climb around the bike) and set up just before a real bend, as riders do:
+  basic (seat centred, only the upper body leans in), intermediate (onto the inside cheek) and full
+  hang-off past ~35° (off the seat, square to the bike, head and shoulders inside, inside knee out).
+  Past ~45° the knee slider touches down: sparks, a quiet scrape, and the lean readout turns orange.
+- **Realistic lean**: lane changes and swerves use about 20-25° of lean (the lateral acceleration a
+  rider uses on the road); bends still lean as far as they need.
 - **Braking**: the rider sits up out of the tuck with the arms braced; the body is pushed forward by
   the deceleration (back under acceleration). Braking hard into a bend, the inside leg comes off the
   peg and swings out and forward, and the body is set up for the corner before turn-in.
 - **Looking through the corner**: the head turns towards the corner (from the road curvature ahead)
   and the helmet cam turns with it.
 - **Gear shifts**: the left toe flicks up under the lever on each upshift.
-- **Bike**: under hard braking the chassis pitches over the front tyre and the rear goes light,
-  lifting a few centimetres at the limit. Braking hard into a bend makes the rear step out (backing
-  it in) with tyre smoke and skid marks. The front brake disc glows orange after repeated hard
+- **Bike**: braking compresses the forks: the nose dives about the rear contact patch while the front
+  wheel stays on the road (it rises into the fender); the fork extends again on the gas. Only at the
+  very limit from high speed does the rear go light and lift a little. Braking really hard into a
+  real bend makes the rear step out (backing it in) with tyre smoke and skid marks. The front brake disc glows orange after repeated hard
   stops from high speed and cools down again. Exhaust pops on shifts and on the overrun show a
   flame at the silencer.
 - **Screen**: radial speed blur with a slight colour fringe above ~190 km/h (medium/high graphics),
   a lean angle readout, and an optional **Helmet view** (Settings / pause menu): the visor opening of
   a race helmet framing the screen, with a slight tunnel effect at speed.
+
+- **Chase view**: a follow camera behind and a little above the bike on its path. Its heading follows
+  the direction of travel with a short lag and the horizon stays nearly level, so the bike leans in
+  the frame instead of the world tilting.
 
 ## Scoring and feel
 

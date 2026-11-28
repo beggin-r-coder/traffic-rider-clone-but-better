@@ -95,6 +95,11 @@ var _situp := 0.0          # braking: out of the tuck, arms braced
 var _leg_out := 0.0        # signed: inside leg off the peg while braking into a bend (+ right)
 var _look := 0.0           # head yaw towards the corner exit (-1..1)
 var _surge := 0.0          # smoothed accel for body sway
+var _lean_slow := 0.0      # sustained lean (rad), picks the body-position level
+var _upper := 0.0          # upper-body lean-in (-1..1), follows the lean quickly
+var _tucked := false
+var _tuck_hold := 0.0
+var _brake_hold := 0.0
 var knee_drag := {1.0: false, -1.0: false}   # knee slider on the asphalt (set by Rider)
 var _head_rest := Vector3.ZERO     # head position in the neutral seated pose
 var frozen := false
@@ -451,23 +456,41 @@ func update_pose(dt: float) -> void:
 	_thr_s = lerpf(_thr_s, throttle, k)
 	_brk_cover = move_toward(_brk_cover, 1.0 if brake > 0.04 else 0.0, dt * 9.0)
 	_brk_pull = lerpf(_brk_pull, brake, k)
-	# Hang-off follows the lean, and starts early when braking for a bend (body set before turn-in).
-	var hang_t := clampf(lean / 0.75, -1.0, 1.0)
-	if brake > 0.3 and absf(turn_ahead) > 0.2 and absf(hang_t) < 0.5:
-		hang_t = turn_ahead * 0.5
-	_hang = lerpf(_hang, hang_t, 1.0 - exp(-5.0 * dt))
-	# Full tuck on fast straights with the throttle open; out of it on the brakes or leaned over.
-	var tuck_t := clampf((speed - 30.0) / 22.0, 0.0, 1.0) * clampf(1.0 - absf(lean) / 0.3, 0.0, 1.0)
-	if throttle < 0.25 or brake > 0.1:
-		tuck_t *= 0.25
-	_tuck = lerpf(_tuck, tuck_t, 1.0 - exp(-(4.0 if tuck_t < _tuck else 2.2) * dt))
-	_situp = lerpf(_situp, clampf((brake - 0.2) / 0.5, 0.0, 1.0) * clampf(speed / 15.0, 0.0, 1.0), 1.0 - exp(-7.0 * dt))
-	# Leg dangle: hard braking into a bend, inside foot off the peg; tucked back in as the lean builds.
+	# Body position comes in levels, chosen from the *sustained* lean (quick direction changes in
+	# traffic don't make the rider climb around the bike), and set up just before a real bend:
+	#   basic (< ~15 deg): seat centred, only the upper body leans in
+	#   intermediate: onto the inside cheek
+	#   full (> ~35 deg): off the seat, inside knee out towards the asphalt
+	_lean_slow = lerpf(_lean_slow, lean, 1.0 - exp(-1.6 * dt))
+	var mag := absf(_lean_slow)
+	var hang_t := signf(_lean_slow) * (smoothstep(0.22, 0.42, mag) * 0.5 + smoothstep(0.45, 0.75, mag) * 0.5)
+	if absf(turn_ahead) > 0.4 and absf(hang_t) < 0.5 and signf(turn_ahead) != -signf(lean):
+		hang_t = signf(turn_ahead) * 0.5 * smoothstep(0.4, 0.8, absf(turn_ahead))
+	_hang = lerpf(_hang, hang_t, 1.0 - exp(-2.6 * dt))
+	_upper = lerpf(_upper, clampf(lean / 0.6, -1.0, 1.0), 1.0 - exp(-5.0 * dt))
+	# Tuck with hysteresis: settle into it on a fast straight with the throttle held, stay there
+	# through brief throttle lifts, come up for real braking or real lean.
+	if not _tucked and speed > 36.0 and absf(lean) < 0.2 and throttle > 0.5 and brake < 0.1:
+		_tuck_hold += dt
+		if _tuck_hold > 0.8:
+			_tucked = true
+	elif _tucked and (brake > 0.35 or absf(lean) > 0.38 or speed < 28.0):
+		_tucked = false
+		_tuck_hold = 0.0
+	elif not _tucked:
+		_tuck_hold = maxf(_tuck_hold - dt, 0.0)
+	var tuck_t := clampf((speed - 28.0) / 20.0, 0.0, 1.0) if _tucked else 0.0
+	_tuck = lerpf(_tuck, tuck_t, 1.0 - exp(-(2.6 if tuck_t < _tuck else 1.4) * dt))
+	# Sitting up: only for real braking (not throttle blips).
+	_brake_hold = _brake_hold + dt if brake > 0.4 else 0.0
+	var situp_t := clampf((brake - 0.3) / 0.5, 0.0, 1.0) * clampf(speed / 15.0, 0.0, 1.0) if _brake_hold > 0.15 else 0.0
+	_situp = lerpf(_situp, situp_t, 1.0 - exp(-4.5 * dt))
+	# Leg dangle: hard braking into a real bend with the bike still upright.
 	var leg_t := 0.0
-	if brake > 0.45 and speed > 20.0 and absf(turn_ahead) > 0.25 and absf(lean) < 0.35:
+	if brake > 0.6 and _brake_hold > 0.25 and speed > 25.0 and absf(turn_ahead) > 0.5 and absf(lean) < 0.25:
 		leg_t = signf(turn_ahead)
-	_leg_out = move_toward(_leg_out, leg_t, dt * (3.0 if leg_t != 0.0 else 2.2))
-	_look = lerpf(_look, clampf(turn_ahead * 1.2 + lean * 0.6, -1.0, 1.0), 1.0 - exp(-4.0 * dt))
+	_leg_out = move_toward(_leg_out, leg_t, dt * (2.2 if leg_t != 0.0 else 1.8))
+	_look = lerpf(_look, clampf(turn_ahead * 1.0 + _lean_slow * 0.5, -1.0, 1.0), 1.0 - exp(-2.5 * dt))
 	_surge = lerpf(_surge, clampf(accel, -12.0, 9.0), 1.0 - exp(-6.0 * dt))
 	_fk_all()
 	var up := Vector3.UP
@@ -478,7 +501,7 @@ func update_pose(dt: float) -> void:
 	# --- pelvis on the seat, tilted forward; hang off the inside in corners ---
 	# Off the inside of the seat when hanging off; slid back for the tuck; shoved forward against the
 	# tank by braking, pressed back by acceleration.
-	var hip_target := _sk(SEAT) + up * float(prof["seat_lift"]) + Vector3(-_hang * 0.17, -absf(_hang) * 0.03, 0)
+	var hip_target := _sk(SEAT) + up * float(prof["seat_lift"]) + Vector3(-_hang * 0.15, -absf(_hang) * 0.025, 0)
 	hip_target += Vector3(0, -0.01 * _tuck, -0.05 * _tuck)
 	hip_target += Vector3(0, 0, 0.004 * maxf(-_surge, 0.0) - 0.002 * maxf(_surge, 0.0))
 	_move(hips, hip_target - _g[hips].origin)
@@ -495,11 +518,11 @@ func update_pose(dt: float) -> void:
 	var want := _target_pitch_extra(hips)
 	_pitch_extra = want if dt >= 0.5 else lerpf(_pitch_extra, want, 1.0 - exp(-8.0 * dt))
 	_rot(hips, Vector3.RIGHT, _pitch_extra, _g[hips].origin)
-	_rot(hips, fwd, deg_to_rad(_hang * 14.0), _g[hips].origin)
-	# Hips angled across the seat, upper body leaning in further: head and shoulders inside the bar.
-	_rot(hips, up, deg_to_rad(-_hang * 10.0), _g[hips].origin)
-	_rot(spine[1], fwd, deg_to_rad(_hang * 14.0), _g[spine[1]].origin)
-	_rot(spine[2], fwd, deg_to_rad(_hang * 8.0), _g[spine[2]].origin)
+	# Pelvis tilts with the hang-off (square to the bike: no pivoting round the tank); the upper body
+	# leans in with every lean, so head and shoulders go to the inside even with the seat centred.
+	_rot(hips, fwd, deg_to_rad(_hang * 10.0), _g[hips].origin)
+	_rot(spine[1], fwd, deg_to_rad(_upper * 7.0 + _hang * 7.0), _g[spine[1]].origin)
+	_rot(spine[2], fwd, deg_to_rad(_upper * 5.0 + _hang * 4.0), _g[spine[2]].origin)
 
 	# --- head up, eyes level, looking a touch into the turn ---
 	var torso_pitch := 42.0 + 8.0 * _tuck + 18.0 + 9.0 * _tuck + rad_to_deg(_pitch_extra)
@@ -508,8 +531,8 @@ func update_pose(dt: float) -> void:
 	_rot(neck, Vector3.RIGHT, deg_to_rad(-torso_pitch * 0.55), _g[neck].origin)
 	_rot(head, Vector3.RIGHT, deg_to_rad(-torso_pitch * float(prof.get("head_comp", 0.38))), _g[head].origin)
 	# Look through the corner, eyes levelled against the lean.
-	_rot(head, up, deg_to_rad(-steer * 5.0 - _look * 22.0), _g[head].origin)
-	_rot(head, fwd, deg_to_rad(-_hang * 18.0), _g[head].origin)
+	_rot(head, up, deg_to_rad(-_look * 18.0), _g[head].origin)
+	_rot(head, fwd, deg_to_rad(-_upper * 8.0 - _hang * 10.0), _g[head].origin)
 	# Tucked: chin down to the tank, eyes lifted to see over the screen.
 	_rot(head, Vector3.RIGHT, deg_to_rad(-10.0 * _tuck), _g[head].origin)
 
@@ -711,7 +734,7 @@ func _pose_leg(side: float) -> void:
 	var ball := peg + out * 0.02 + Vector3.UP * 0.035
 	var ankle := ball - want_f * ball_len + Vector3.UP * 0.02
 	# Inside knee opens out towards the asphalt when hanging off.
-	var knee_out := -0.08 + inside * absf(_hang) * 1.6
+	var knee_out := -0.08 + inside * (absf(_hang) * 0.45 + smoothstep(0.5, 1.0, absf(_hang)) * 1.15)
 	var pole := (Vector3(0, 0, 1) * 0.95 + out * knee_out + Vector3.UP * 0.25 - Vector3.UP * inside * absf(_hang) * 0.4).normalized()
 	# Braking into a bend: inside foot off the peg, leg swung out and forward, toe pointing down.
 	var dangle := maxf(_leg_out * side, 0.0)
@@ -747,7 +770,7 @@ func head_delta() -> Vector3:
 
 ## How far the head is turned towards the corner (radians, + = right) for the helmet camera.
 func head_yaw() -> float:
-	return deg_to_rad(steer * 5.0 + _look * 22.0)
+	return deg_to_rad(_look * 18.0)
 
 ## Thrown off in a crash: arms and legs flail while airborne and go limp, sprawled, once the rider
 ## is sliding on the ground. `t` = seconds since the crash, `ground` = 0 airborne .. 1 on the ground.

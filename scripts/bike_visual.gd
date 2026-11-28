@@ -303,6 +303,11 @@ func _split_mesh(mesh: Mesh, split_z: float, front_is_positive: bool) -> Array:
 			out[k] = sts[k].commit()
 	return out
 
+## Fork travel (metres): the chassis dives but the front wheel stays on the road.
+func set_front_compression(m: float) -> void:
+	if front_wheel:
+		front_wheel.position = front_hub + Vector3(0, clampf(m, -0.02, 0.07), 0)
+
 ## Lean (roll) in radians, positive = lean right.
 func set_lean(angle: float) -> void:
 	lean_node.rotation.z = -angle
