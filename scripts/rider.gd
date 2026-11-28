@@ -73,7 +73,17 @@ var _chase_init := false
 var _head_offset := Vector3(0, 1.38, 0.3)
 var _fov := 60.0
 var scrape := 0.0         # >0 while grinding a guard rail (for sparks/sound)
-var wheelie := 0.0
+var wheelie := 0.0        # visual squat/dive from acceleration (-1..1)
+## Power wheelie: full throttle in 1st/2nd below ~100 km/h lifts the front wheel. Wheelie control
+## caps the angle; roll off, brake or reach speed and it sets down. Steering is lighter on one wheel.
+var wheelie_angle := 0.0  # radians, front wheel up
+var _wheelie_on := false
+var _thr_low_t := 9.0     # seconds since the throttle was last rolled off
+const WHEELIE_MAX := deg_to_rad(30.0)
+var _acc_s := 0.0         # smoothed longitudinal acceleration (camera pitch)
+var _shift_kick := 0.0    # head nod on upshift
+var _fov_kick := 0.0      # FOV punch (near misses)
+var _cam_roll := 0.0      # head roll, lags the bike's lean
 
 ## The rider avatar, posed by IK onto the grips/pegs every frame (scripts/rider_model.gd).
 const SHOW_RIDER := true
@@ -82,6 +92,7 @@ var _clutch_t := 0.0
 var _thrown: Node3D
 var _thrown_vel := Vector3.ZERO
 var _thrown_spin := Vector3.ZERO
+var _thrown_ground := 0.0
 
 func _ready() -> void:
 	if def.is_empty():
@@ -145,6 +156,8 @@ func reset_at(start_s: float, start_d: float) -> void:
 	gear = 1
 	rpm = IDLE_RPM
 	is_crashed = false
+	wheelie_angle = 0.0
+	_wheelie_on = false
 	_chase_init = false
 
 func kmh() -> float:
@@ -205,6 +218,7 @@ func _engine(dt: float) -> void:
 		_clutch_t = 0.25
 		gear_changed.emit(gear)
 		_cam_shake = maxf(_cam_shake, 0.25)
+		_shift_kick = 1.0
 	elif gear > 1 and rpm < (6200.0 if throttle > 0.5 else 4800.0) * REDLINE / 14000.0:
 		gear -= 1
 		shift_timer = 0.12
@@ -223,6 +237,22 @@ func _engine(dt: float) -> void:
 	var a_grade := -G * road.grade_at(s)
 	accel = a_drive - a_drag - a_engine_brake - a_brake + a_grade
 	v = maxf(v + accel * dt, 0.0)
+	# Power wheelie.
+	# Triggered by snapping the throttle open (rolled off, then wide open within 0.35 s); held up
+	# by keeping it pinned.
+	_thr_low_t = 0.0 if throttle < 0.4 else _thr_low_t + dt
+	var can_wheelie := controls_enabled and throttle > 0.9 and brake < 0.1 and gear <= 2 and v < 28.0
+	if can_wheelie and _thr_low_t < 0.35:
+		_wheelie_on = true
+	if not can_wheelie:
+		_wheelie_on = false
+	var w_target := 0.0
+	if _wheelie_on and shift_timer <= 0.0:
+		w_target = WHEELIE_MAX * clampf(a_drive / 7.5, 0.0, 1.0) * clampf((28.0 - v) / 6.0, 0.25, 1.0) * clampf((v - 1.5) / 3.0, 0.0, 1.0)
+	if w_target > wheelie_angle:
+		wheelie_angle = move_toward(wheelie_angle, w_target, 0.55 * dt)
+	else:
+		wheelie_angle = move_toward(wheelie_angle, w_target, (2.2 if brake > 0.1 else 1.1) * dt)
 	# Visual wheelie/pitch from acceleration.
 	wheelie = lerpf(wheelie, clampf(accel / 9.0, -1.0, 1.0), 1.0 - exp(-6.0 * dt))
 
@@ -248,10 +278,17 @@ func _steering(dt: float, k_road: float) -> void:
 	var low := smoothstep(2.0, 9.0, v)
 	lean_target = clampf(lean_target, -MAX_LEAN, MAX_LEAN) * low
 	# Roll dynamics: damped spring with a roll-rate limit (bikes can't flick instantly).
+	# On one wheel there is little steering.
+	lean_target *= 1.0 - 0.7 * clampf(wheelie_angle / WHEELIE_MAX, 0.0, 1.0)
 	var w := 9.5 * handling_mult
+	var rate_max := 2.6 * handling_mult
+	# Flicks: reversing the lean (e.g. swerving between cars) is quicker than leaning in from upright.
+	if absf(lean) > 0.08 and signf(lean_target - lean) != signf(lean):
+		w *= 1.3
+		rate_max *= 1.25
 	var z := 0.95
 	var acc := w * w * (lean_target - lean) - 2.0 * z * w * lean_rate
-	lean_rate = clampf(lean_rate + acc * dt, -2.4 * handling_mult, 2.4 * handling_mult)
+	lean_rate = clampf(lean_rate + acc * dt, -rate_max, rate_max)
 	lean += lean_rate * dt
 	lean = clampf(lean, -MAX_LEAN, MAX_LEAN)
 	# Path curvature from lean (dynamic) blended with direct steering at low speed (kinematic).
@@ -264,6 +301,7 @@ func crash(reason: String) -> void:
 		return
 	is_crashed = true
 	crash_time = 0.0
+	wheelie_angle = 0.0
 	var t := bike_transform()
 	_crash_pos = t.origin
 	_crash_basis = t.basis
@@ -289,6 +327,7 @@ func _throw_rider(t: Transform3D) -> void:
 		model.global_transform = g
 		model.set_first_person(false)
 		model.frozen = true
+	_thrown_ground = 0.0
 	_thrown_vel = -t.basis.z * v * 0.95 + Vector3.UP * (2.5 + v * 0.04) + t.basis.x * (randf() - 0.5) * 3.0
 	_thrown_spin = Vector3(randf_range(-6, -3), randf_range(-2, 2), randf_range(-3, 3))
 
@@ -326,7 +365,21 @@ func _simulate_crash(dt: float) -> void:
 		var b := _thrown.global_transform.basis
 		if _thrown_spin.length() > 0.001:
 			b = b.rotated(_thrown_spin.normalized(), _thrown_spin.length() * dt)
+		if _thrown_ground > 0.4:
+			# On the ground the body settles flat (head-to-feet axis horizontal, on its back or front).
+			var yh := Vector3(b.y.x, 0.0, b.y.z)
+			if yh.length() < 0.2:
+				yh = Vector3(_thrown_vel.x, 0.0, _thrown_vel.z)
+				if yh.length() < 0.01:
+					yh = Vector3.FORWARD
+			yh = yh.normalized()
+			var zt := Vector3.UP if b.z.dot(Vector3.UP) >= 0.0 else Vector3.DOWN
+			var flat := Basis(yh.cross(zt), yh, zt).orthonormalized()
+			b = b.orthonormalized().slerp(flat, 1.0 - exp(-5.0 * dt))
 		_thrown.global_transform = Transform3D(b.orthonormalized(), p)
+		if model:
+			_thrown_ground = lerpf(_thrown_ground, 1.0 if p.y <= gy + 0.05 else 0.0, 1.0 - exp(-4.0 * dt))
+			model.update_crash_pose(crash_time, _thrown_ground)
 	_crash_basis = _crash_basis.rotated(Vector3.UP, _crash_spin * dt).orthonormalized()
 	_crash_roll = move_toward(_crash_roll, signf(_crash_roll + 0.001) * PI * 0.47, dt * 4.0)
 	v = Vector3(_crash_vel.x, 0, _crash_vel.z).length()
@@ -351,6 +404,15 @@ func update_visuals(dt: float) -> void:
 	# Pitch the bike slightly under acceleration/braking (squat & dive).
 	var pitch := wheelie * 0.025
 	t.basis = t.basis * Basis(Vector3.RIGHT, pitch)
+	var t_cam := t
+	if wheelie_angle > 0.001:
+		# Pivot about the rear tyre's contact patch.
+		var rear := Vector3(0, 0, bike.wheelbase * 0.5)
+		var wb := Basis(Vector3.RIGHT, wheelie_angle)
+		t = t * Transform3D(wb, rear - wb * rear)
+		# The camera follows most of it (you see sky, but can still see the road ahead).
+		var wc := Basis(Vector3.RIGHT, wheelie_angle * 0.6)
+		t_cam = t_cam * Transform3D(wc, rear - wc * rear)
 	bike.global_transform = t
 	bike.set_lean(lean)
 	bike.roll(v * dt)
@@ -374,7 +436,7 @@ func update_visuals(dt: float) -> void:
 		camera.global_transform = Transform3D(Basis(), eye).looking_at(t.origin + t.basis.y * 0.6 + t.basis.z * 0.2, t.basis.y)
 		camera.fov = 45.0
 	elif view == Game.View.FIRST_PERSON:
-		_update_fp_camera(t, dt)
+		_update_fp_camera(t_cam, dt)
 	else:
 		_update_chase_camera(t, dt)
 
@@ -393,22 +455,37 @@ func _update_fp_camera(t: Transform3D, dt: float) -> void:
 		target_head = model.fp_camera_position()
 	# Player POV adjustment (Settings / pause menu).
 	target_head += Vector3(0, Game.cam_height, -Game.cam_forward)
+	# Weight transfer: the head pitches down and forward under braking / engine braking, back
+	# under hard acceleration; a short nod back on each upshift.
+	_acc_s = lerpf(_acc_s, accel, 1.0 - exp(-5.0 * dt))
+	_shift_kick = maxf(_shift_kick - dt * 6.0, 0.0)
+	_fov_kick = move_toward(_fov_kick, 0.0, dt * 9.0)
+	var surge := clampf(_acc_s, -11.0, 9.0)
+	target_head += Vector3(0, -0.0015 * maxf(-surge, 0.0), 0.004 * surge)
 	_head_offset = _head_offset.lerp(target_head, 1.0 - exp(-8.0 * dt))
-	var lean_b := Basis(Vector3.BACK, -lean)
 	var origin := t * (Basis(Vector3.BACK, -lean) * _head_offset)
-	# Head stays more upright than the bike (riders counter the lean with their neck).
-	var cam_roll := -lean * 0.42
+	# Head stays more upright than the bike (riders counter the lean with their neck), lagging it
+	# slightly so leaning in feels like your body is doing it.
+	_cam_roll = lerpf(_cam_roll, -lean * 0.42, 1.0 - exp(-7.0 * dt))
 	var look_yaw := -curvature * clampf(v, 0.0, 60.0) * 0.12
-	var look_pitch := deg_to_rad(Game.cam_pitch) - wheelie * 0.02
-	var b := t.basis * Basis(Vector3.UP, look_yaw) * Basis(Vector3.BACK, cam_roll) * Basis(Vector3.RIGHT, look_pitch)
-	# Engine & road vibration.
-	var vib := 0.0015 + 0.004 * clampf(v / 80.0, 0.0, 1.0) + _cam_shake * 0.02
+	var look_pitch := deg_to_rad(Game.cam_pitch) + surge * 0.0055 + _shift_kick * 0.022
+	var b := t.basis * Basis(Vector3.UP, look_yaw) * Basis(Vector3.BACK, _cam_roll) * Basis(Vector3.RIGHT, look_pitch)
+	# Vibration: road rumble growing with speed, a fine engine buzz growing with revs.
+	var r01 := clampf(rpm / REDLINE, 0.0, 1.0)
+	var vib := 0.0012 + 0.0045 * clampf(v / 80.0, 0.0, 1.0) + _cam_shake * 0.02
 	var sh := _shake_vec(vib)
+	var buzz := 0.0012 * r01 * r01 * (1.0 if throttle > 0.2 else 0.5)
+	sh += Vector3(sin(_cam_t * 211.0), sin(_cam_t * 263.0 + 0.7), 0.0) * buzz
 	origin += b.x * sh.x + b.y * sh.y
 	camera.global_transform = Transform3D(b.orthonormalized(), origin)
-	var target_fov := Game.cam_fov + 16.0 * clampf((v - 15.0) / 70.0, 0.0, 1.0)
+	# Speed FOV (a little extra past 220 km/h), a dip on upshifts, a punch on near misses.
+	var target_fov := Game.cam_fov + 16.0 * clampf((v - 15.0) / 70.0, 0.0, 1.0) + 5.0 * clampf((v - 61.0) / 25.0, 0.0, 1.0)
 	_fov = lerpf(_fov, target_fov, 1.0 - exp(-3.0 * dt))
-	camera.fov = _fov
+	camera.fov = _fov - _shift_kick * 1.5 + _fov_kick
+
+## FOV punch (degrees) for near misses.
+func kick_fov(deg: float) -> void:
+	_fov_kick = maxf(_fov_kick, deg)
 
 func _update_chase_camera(t: Transform3D, dt: float) -> void:
 	var back := 2.05 + clampf(v / 80.0, 0.0, 1.0) * 0.45

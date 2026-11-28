@@ -181,8 +181,33 @@ Test flags: `--cash=N`, `--paint=N`, `--bike=r1|h2|zx6r`, `--menu --garage --sho
 | Camera | Pause menu | C |
 | Pause | II button | Esc / P |
 
-Scoring starts above 100 km/h and scales with speed. Near misses (passing a car with < 1 m gap at
-80+ km/h) give bonus points and build a combo.
+| Wheelie | Roll off and snap the GAS back on in 1st/2nd below ~100 km/h; keep it pinned to hold it | same with W |
+
+## Scoring and feel
+
+- **Distance score** starts above 100 km/h and scales with speed.
+- **Near misses**: pass a car with less than 1.3 m of side gap at 80+ km/h (riding near the lane line,
+  or splitting lanes). Under 0.45 m is a **CLOSE CALL** (x1.6). Points scale with speed (up to x2.6),
+  double for oncoming cars, and multiply by the **combo** (up to x10). The combo bar under the counter
+  drains over 4 s; another near miss refills it, and ordinary close passes keep it alive a bit longer.
+  Each near miss gives a whoosh, a vibration pulse and an FOV punch.
+- **Bonus streaks** build while they last and are banked with a popup when they end: **HIGH SPEED**
+  (above 200 km/h, +50%), **ONCOMING** (Two-Way, riding in the oncoming lanes, x2) and **WHEELIE**.
+  The running streak is shown under the score.
+- **Wheelies**: wheelie control caps the angle at 30°; steering is much lighter on one wheel; brake,
+  roll off, shift past 2nd or pass ~100 km/h and the front sets down.
+- **Weight and speed**: the head dips and moves forward under braking and engine braking, leans back
+  under hard acceleration and nods on each upshift (with a short FOV dip and a light vibration).
+  Road rumble grows with speed, a fine engine buzz with revs; the head roll lags the bike slightly.
+  The FOV widens with speed (more past 220 km/h) and the wind starts buffeting past ~250 km/h.
+- **Controls**: tilt has a short dead zone and a response curve (fine corrections near the centre,
+  fast swerves at full tilt) with ~30 ms smoothing; reversing a lean (a flick) is quicker than leaning
+  in from upright. The brake bites at 35% immediately and builds to full over ~0.25 s; the throttle
+  rolls on over ~0.1 s. *Re-centre tilt* is in the pause menu.
+- **Crashes**: a slow-motion moment at impact easing back to real time, the rider flails while thrown
+  and goes limp on the ground, and a **RETRY** button appears straight away.
+- **Traffic** uses indicators before changing lanes, honks if you cut in just ahead of it, and oncoming
+  cars honk when you ride at them in their lane.
 
 ## Project layout
 
@@ -231,6 +256,7 @@ Pass after `--` on the command line (read via `OS.get_cmdline_user_args()`):
 | `--quality=0/1/2` | graphics quality |
 | `--photo` | close 3/4 camera riding alongside the bike (for screenshots) |
 | `--posetest=DIR` | (with `res://scenes/pose_test.tscn`) render rider pose review images (`--views=a,b --states=cruise,brake` to limit) |
+| `--risky` | autopilot rides near the lane line so it scores near misses (tests the scoring) |
 | `--bike=r1\|h2\|zx6r` | ride / show that bike (index or id) |
 | `--rider=rpm` | use the older Ready Player Me rider instead of the biker |
 | `--audiotest` | render every procedural sound offline, check samples are finite, print peak/RMS |

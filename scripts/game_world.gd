@@ -7,6 +7,8 @@ enum State { COUNTDOWN, RIDING, CRASHED, OVER }
 const SCORE_SPEED := 100.0 / 3.6       # score only accrues above 100 km/h
 const NEAR_MISS_POINTS := 300
 const COMBO_WINDOW := 4.0
+const COMBO_MAX := 10
+const HIGH_SPEED := 200.0 / 3.6         # high-speed bonus above 200 km/h
 
 var road: Road
 var traffic: Traffic
@@ -33,6 +35,14 @@ var next_checkpoint := 2500.0
 var oncoming_time := 0.0
 var top_speed := 0.0
 var paused := false
+## Bonus streaks: points build up while the streak lasts and are banked (popup) when it ends.
+## name -> {"on": bool, "t": seconds, "pts": float}
+var streaks := {"HIGH SPEED": {"on": false, "t": 0.0, "pts": 0.0},
+	"ONCOMING": {"on": false, "t": 0.0, "pts": 0.0},
+	"WHEELIE": {"on": false, "t": 0.0, "pts": 0.0}}
+var _thr_in := 0.0
+var _brk_in := 0.0
+var _slowmo_t := -1.0      # real seconds since the crash slow-motion started
 
 # test harness
 var autopilot := false
@@ -71,6 +81,8 @@ func _ready() -> void:
 		add_child(street_lights)
 		street_lights.setup(road, [3, 5, 7][clampi(Game.quality, 0, 2)], night)
 	traffic.near_miss.connect(_on_near_miss)
+	traffic.passed.connect(_on_passed)
+	traffic.honk.connect(_on_honk)
 	rider = Rider.new()
 	rider.name = "Rider"
 	add_child(rider)
@@ -84,7 +96,7 @@ func _ready() -> void:
 	rider.reset_at(4.0, Road.LANE_W * 0.5)
 	rider.set_view(Game.view)
 	rider.crashed.connect(_on_crash)
-	rider.gear_changed.connect(func(g): if audio: audio.on_shift(g))
+	rider.gear_changed.connect(_on_gear)
 	if night or Game.rain:
 		headlight = SpotLight3D.new()
 		headlight.light_color = Color(1.0, 0.96, 0.88)
@@ -374,6 +386,7 @@ func _process(delta: float) -> void:
 	if paused:
 		return
 	var dt := minf(delta, 0.1)
+	_update_slowmo(delta)
 	_sim_time += dt
 	Game.harness_time += dt
 	# Fixed sub-steps for stable bike dynamics.
@@ -404,7 +417,7 @@ func _step(dt: float) -> void:
 				hud.show_message("GO!", 0.8)
 		State.RIDING:
 			run_time += dt
-			_read_input()
+			_read_input(dt)
 			if Game.has_flag("crashat") and run_time >= float(Game.flag("crashat")):
 				rider.crash("test")
 		State.CRASHED, State.OVER:
@@ -425,7 +438,7 @@ func _step(dt: float) -> void:
 		if rider.crash_time > 2.2:
 			_game_over()
 
-func _read_input() -> void:
+func _read_input(dt: float) -> void:
 	if autopilot:
 		_autopilot()
 		return
@@ -436,8 +449,16 @@ func _read_input() -> void:
 	var st := Input.get_axis("steer_left", "steer_right")
 	if absf(st) < 0.01:
 		st = hud.steer_input()
-	rider.throttle = t
-	rider.brake = b
+	# Throttle rolls on quickly but not instantly; the brake bites at once (35%) and then builds,
+	# so a tap scrubs speed and a hold stops hard. Releases are near-instant.
+	_thr_in = move_toward(_thr_in, t, dt * (9.0 if t > _thr_in else 14.0))
+	if b > 0.0:
+		_brk_in = maxf(_brk_in, minf(b, 0.35))
+		_brk_in = move_toward(_brk_in, b, dt * 2.6)
+	else:
+		_brk_in = move_toward(_brk_in, 0.0, dt * 12.0)
+	rider.throttle = _thr_in
+	rider.brake = _brk_in
 	rider.steer = clampf(st, -1.0, 1.0)
 
 func _score(dt: float) -> void:
@@ -445,14 +466,20 @@ func _score(dt: float) -> void:
 	var oncoming := Game.mode == Game.Mode.TWO_WAY and rider.d < -0.3
 	if oncoming:
 		oncoming_time += dt
+	var base := 0.0
 	if rider.v > SCORE_SPEED:
 		var mult := 1.0 + (rider.v - SCORE_SPEED) / 25.0
-		if oncoming:
-			mult *= 2.0
-		score += rider.v * dt * 0.5 * mult
+		base = rider.v * dt * 0.5 * mult
+		score += base
+	# Bonus streaks (each adds on top of the distance score while it lasts).
+	_streak("HIGH SPEED", rider.v > HIGH_SPEED, base * 0.5, dt)
+	_streak("ONCOMING", oncoming and rider.v > SCORE_SPEED, base, dt)
+	_streak("WHEELIE", rider.wheelie_angle > deg_to_rad(8.0) and rider.v > 8.0, 140.0 * dt * (1.0 + rider.wheelie_angle / Rider.WHEELIE_MAX), dt)
 	if combo_timer > 0.0:
 		combo_timer -= dt
 		if combo_timer <= 0.0:
+			if combo > 1:
+				hud.popup("COMBO ENDED  x%d" % combo, 1)
 			combo = 0
 	if Game.mode == Game.Mode.TIME_TRIAL:
 		time_left -= dt
@@ -471,6 +498,36 @@ func _score(dt: float) -> void:
 			hud.show_message("TIME UP", 2.0)
 			_game_over_delayed()
 
+## Streak bookkeeping: accumulate while active; bank with a popup when it ends (if it lasted).
+func _streak(name: String, active: bool, pts: float, dt: float) -> void:
+	var st: Dictionary = streaks[name]
+	if active:
+		st["on"] = true
+		st["t"] += dt
+		st["pts"] += pts
+		score += pts
+	elif st["on"]:
+		st["on"] = false
+		if st["t"] > 1.5 and st["pts"] >= 50.0:
+			hud.popup("%s  %.1fs  +%d" % [name, st["t"], int(st["pts"])], 1)
+			if autopilot:
+				print("[autotest] bonus %s %.1fs +%d" % [name, st["t"], int(st["pts"])])
+			if audio:
+				audio.play_bonus()
+		st["t"] = 0.0
+		st["pts"] = 0.0
+
+## The live streak to show under the score line ("" if none).
+func active_streak() -> String:
+	var best := ""
+	var best_pts := 0.0
+	for n in streaks:
+		var st: Dictionary = streaks[n]
+		if st["on"] and st["t"] > 0.5 and st["pts"] >= best_pts:
+			best = "%s  +%d" % [n, int(st["pts"])]
+			best_pts = st["pts"]
+	return best
+
 func _game_over_delayed() -> void:
 	await get_tree().create_timer(1.5).timeout
 	_game_over()
@@ -479,15 +536,22 @@ func _on_near_miss(clearance: float, oncoming: bool) -> void:
 	if state != State.RIDING:
 		return
 	near_misses += 1
-	combo = combo + 1 if combo_timer > 0.0 else 1
+	combo = mini(combo + 1, COMBO_MAX) if combo_timer > 0.0 else 1
 	combo_timer = COMBO_WINDOW
-	var pts := int(NEAR_MISS_POINTS * (1.0 + (1.0 - clearance) * 0.6) * (2.0 if oncoming else 1.0) * combo)
+	var close := clearance < 0.45
+	# Faster and closer pays more; oncoming doubles; the combo multiplies.
+	var speed_f := clampf(rider.v / 27.8, 0.8, 2.6)
+	var pts := int(NEAR_MISS_POINTS * speed_f * (1.6 if close else 1.0) * (2.0 if oncoming else 1.0) * combo)
 	score += pts
-	var label := "CLOSE CALL" if clearance < 0.35 else "NEAR MISS"
+	var label := "CLOSE CALL" if close else "NEAR MISS"
 	if oncoming:
 		label = "ONCOMING " + label
 	hud.popup("%s  +%d" % [label, pts], combo)
-	Input.vibrate_handheld(25)
+	hud.combo_flash()
+	if autopilot:
+		print("[autotest] %s clear=%.2f kmh=%.0f combo=%d +%d" % [label, clearance, rider.kmh(), combo, pts])
+	Input.vibrate_handheld(45 if close else 25, 0.9 if close else 0.5)
+	rider.kick_fov(4.5 if close else 2.5)
 	if audio:
 		audio.play_whoosh(rider.v)
 		if randf() < 0.45:
@@ -495,24 +559,59 @@ func _on_near_miss(clearance: float, oncoming: bool) -> void:
 	if Game.mode == Game.Mode.TIME_TRIAL:
 		time_left += 1.0
 
+## Ordinary close pass: a softer whoosh, and it keeps a running combo alive.
+func _on_passed(clearance: float, rel_speed: float, oncoming: bool) -> void:
+	if state != State.RIDING:
+		return
+	if combo > 0:
+		combo_timer = maxf(combo_timer, COMBO_WINDOW * 0.6)
+	if audio:
+		audio.play_whoosh(rel_speed, -13.0 + (PASS_LOUD - clearance) * 2.0)
+
+const PASS_LOUD := 2.8
+
+func _on_honk(distance: float) -> void:
+	if state == State.RIDING and audio:
+		audio.play_horn(clampf(-4.0 - distance * 0.12, -18.0, -4.0))
+
+func _on_gear(g: int) -> void:
+	if audio:
+		audio.on_shift(g)
+	if state == State.RIDING and g > 1:
+		Input.vibrate_handheld(12, 0.35)
+
 func _on_crash(reason: String) -> void:
 	state = State.CRASHED
 	if audio:
 		audio.play_crash()
 	sparks.emitting = true
-	Input.vibrate_handheld(250)
+	Input.vibrate_handheld(300, 1.0)
 	hud.show_message("CRASHED", 2.0)
-	Engine.time_scale = 0.45 if not autopilot else 1.0
-	get_tree().create_timer(0.6, true, false, true).timeout.connect(func(): Engine.time_scale = 1.0)
+	hud.show_retry(true)
+	# Slow motion at the moment of impact, easing back to real time (see _update_slowmo).
+	if not autopilot:
+		_slowmo_t = 0.0
+		Engine.time_scale = 0.25
 	if autopilot:
 		_crash_count += 1
 		print("[autotest] crash reason=%s t=%.1f s=%.0f kmh=%.0f score=%d" % [reason, run_time, rider.s, rider.kmh(), int(score)])
+
+func _update_slowmo(delta: float) -> void:
+	if _slowmo_t < 0.0:
+		return
+	_slowmo_t += delta / maxf(Engine.time_scale, 0.01)      # real time
+	Engine.time_scale = lerpf(0.25, 1.0, smoothstep(0.45, 1.6, _slowmo_t))
+	if _slowmo_t > 1.6:
+		Engine.time_scale = 1.0
+		_slowmo_t = -1.0
 
 func _game_over() -> void:
 	if state == State.OVER:
 		return
 	state = State.OVER
+	_slowmo_t = -1.0
 	Engine.time_scale = 1.0
+	hud.show_retry(false)
 	var earned := int(score / 25.0) + near_misses * 5
 	var is_best := Game.submit_run(Game.mode, int(score), rider.distance, earned)
 	hud.show_game_over(int(score), rider.distance, top_speed, near_misses, earned, is_best)
@@ -590,7 +689,11 @@ func _autopilot() -> void:
 			best_score = sc
 			best_d = ld
 	_auto_lane = best_d
-	var err := _auto_lane - rider.d
+	var aim := _auto_lane
+	if Game.has_flag("risky"):
+		# Test rider who passes close: ride near the lane line on the road-centre side.
+		aim -= signf(_auto_lane) * 1.15
+	var err := aim - rider.d
 	rider.steer = clampf(err * 0.55, -1.0, 1.0)
 	var gap_here := traffic.gap_ahead(rider.s, rider.d, 0.7)
 	var closing_here := traffic.closing_speed_ahead(rider.s, rider.d, 0.7, rider.v)

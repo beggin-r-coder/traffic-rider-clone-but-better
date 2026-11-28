@@ -680,6 +680,41 @@ func _pose_leg(side: float) -> void:
 	if sd["toe"] >= 0 and sd["toe_end"] >= 0:
 		_aim(sd["toe"], sd["toe_end"], _g[sd["toe"]].origin + (Vector3(0, 0, 1) + out * 0.1).normalized() * 0.1)
 
+## Thrown off in a crash: arms and legs flail while airborne and go limp, sprawled, once the rider
+## is sliding on the ground. `t` = seconds since the crash, `ground` = 0 airborne .. 1 on the ground.
+func update_crash_pose(t: float, ground: float) -> void:
+	if skel == null:
+		return
+	_fk_all()
+	var hips := _bi(prof["hips"])
+	var spine: Array = (prof["spine"] as Array).map(func(b): return _b[b])
+	var air := 1.0 - ground
+	var fl := exp(-t * 0.9) * air          # flailing dies down
+	# Torso curls in the air, flattens out on the ground.
+	for i in 3:
+		var bi: int = spine[i]
+		_rot(bi, Vector3.RIGHT, deg_to_rad(10.0 * air + 6.0 * sin(t * 7.0 + i) * fl), _g[bi].origin)
+	_rot(_bi(prof["head"]), Vector3.RIGHT, deg_to_rad(-15.0 * ground + 20.0 * sin(t * 5.0) * fl), _g[_bi(prof["head"])].origin)
+	for side: float in [1.0, -1.0]:
+		var sd: Dictionary = _side[side]
+		var ph := 0.0 if side > 0 else 1.7
+		# Arms (rest pose = T-pose, straight out): flail up/down and fore/aft; on the ground, limp
+		# and spread above the head.
+		var up_ang := deg_to_rad(lerpf(20.0, 55.0, ground) + 45.0 * sin(t * 9.0 + ph) * fl)
+		var fwd_ang := deg_to_rad(lerpf(30.0, -10.0, ground) + 35.0 * sin(t * 6.5 + ph * 1.3) * fl)
+		var arm: int = sd["arm"]
+		# Rider's right arm points -X: raising it is a negative turn about +Z (and vice versa).
+		_rot(arm, Vector3(0, 0, 1), up_ang * -side, _g[arm].origin)
+		_rot(arm, Vector3.UP, fwd_ang * side, _g[arm].origin)
+		_rot(sd["fore"], Vector3.UP, deg_to_rad(25.0 + 30.0 * absf(sin(t * 8.0 + ph)) * fl) * side, _g[sd["fore"]].origin)
+		# Legs: kick and spread in the air, splayed and slightly bent on the ground.
+		var leg: int = sd["upleg"]
+		var flex := deg_to_rad(lerpf(35.0, 10.0, ground) + 40.0 * sin(t * 7.5 + ph) * fl)
+		_rot(leg, Vector3.RIGHT, -flex, _g[leg].origin)
+		_rot(leg, Vector3(0, 0, 1), deg_to_rad(lerpf(15.0, 22.0, ground)) * -side, _g[leg].origin)
+		_rot(sd["leg"], Vector3.RIGHT, deg_to_rad(lerpf(55.0, 20.0, ground) + 30.0 * absf(sin(t * 6.0 + ph)) * fl), _g[sd["leg"]].origin)
+	_apply()
+
 ## Convert working globals back to local bone poses.
 func _apply() -> void:
 	for i in _g.size():

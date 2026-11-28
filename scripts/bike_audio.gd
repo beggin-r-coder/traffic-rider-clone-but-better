@@ -35,6 +35,7 @@ var _shift: AudioStreamWAV
 var _bonus: AudioStreamWAV
 var _engine_bus := -1
 var _wind_bus := -1
+var _wind_t := 0.0
 var _lp_engine: AudioEffectLowPassFilter
 var _lp_wind: AudioEffectLowPassFilter
 var _throttle_s := 0.0
@@ -245,7 +246,11 @@ func update(r: Rider, dt: float) -> void:
 		p.pitch_scale = clampf(rpm / ENGINE_RPMS[k], 0.5, 2.0)
 	_lp_engine.cutoff_hz = (lerpf(1400.0, 7000.0, _throttle_s) + rpm * 0.15) if not real_engine else lerpf(5000.0, 16000.0, _throttle_s)
 	var sp := r.v
-	wind.volume_db = linear_to_db(clampf(sp / 85.0, 0.0, 1.0) * 0.9 + 0.001) - 3.0
+	# Wind: grows with speed and gets violent past ~250 km/h (helmet buffeting).
+	var hi := smoothstep(62.0, 85.0, sp)
+	_wind_t += dt * (6.0 + sp * 0.1)
+	var buffet := 1.0 + hi * 0.35 * sin(_wind_t) * sin(_wind_t * 0.37 + 1.3)
+	wind.volume_db = linear_to_db((clampf(sp / 85.0, 0.0, 1.0) * 0.9 + hi * 0.6) * buffet + 0.001) - 3.0
 	wind.pitch_scale = 0.8 + sp / 120.0
 	_lp_wind.cutoff_hz = 400.0 + sp * 45.0
 	roar.volume_db = linear_to_db(clampf(sp / 60.0, 0.0, 1.0) * 0.35 + 0.001) - 6.0
@@ -269,11 +274,11 @@ func _play(stream: AudioStreamWAV, vol_db: float, pitch: float = 1.0) -> void:
 			o.play()
 			return
 
-func play_horn() -> void:
-	_play(_horn, -7.0, rng.randf_range(0.85, 1.15))
+func play_horn(vol_db: float = -7.0) -> void:
+	_play(_horn, vol_db, rng.randf_range(0.85, 1.15))
 
-func play_whoosh(speed: float) -> void:
-	_play(_whoosh, -4.0, clampf(0.8 + speed / 120.0, 0.8, 1.5))
+func play_whoosh(speed: float, vol_db: float = -4.0) -> void:
+	_play(_whoosh, vol_db, clampf(0.8 + speed / 120.0, 0.8, 1.5))
 
 func play_crash() -> void:
 	_play(_crash, 0.0)

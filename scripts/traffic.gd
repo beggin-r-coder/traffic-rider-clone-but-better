@@ -4,6 +4,13 @@ class_name Traffic
 ## against the player.
 
 signal near_miss(clearance: float, oncoming: bool)
+## Any car passed at speed within a few metres (for the pass whoosh / keeping a combo alive).
+signal passed(clearance: float, rel_speed: float, oncoming: bool)
+## A car sounds its horn (cut up by the player, or the player is in an oncoming car's lane).
+signal honk(distance: float)
+
+const NEAR_MISS_CLEAR := 1.3      # lateral gap (m) that counts as a near miss
+const PASS_CLEAR := 2.8           # lateral gap (m) for an ordinary close pass
 
 const KINDS := ["sedan", "sedan", "sedan", "hatch", "hatch", "suv", "suv", "van", "truck"]
 
@@ -277,6 +284,17 @@ func _drive(c: Car, dt: float, player_s: float, player_d: float, player_v: float
 			c.blink = 0
 	if c.horn_cd > 0.0:
 		c.horn_cd -= dt
+	elif player_v > 8.0:
+		var rel_s := player_s - c.s
+		var rel_d := absf(player_d - c.d)
+		if c.dir > 0 and rel_s > 0.0 and rel_s < 9.0 + c.length * 0.5 and rel_d < 1.6 and c.speed > player_v + 1.5:
+			# Player cut in just ahead and is slower: lean on the horn.
+			honk.emit(rel_s)
+			c.horn_cd = 4.0
+		elif c.dir < 0 and -rel_s > 15.0 and -rel_s < 110.0 and rel_d < 1.5:
+			# Player riding head-on in this car's lane.
+			honk.emit(-rel_s)
+			c.horn_cd = 5.0
 	_place(c)
 
 func _place(c: Car) -> void:
@@ -317,9 +335,12 @@ func check_player(player_s: float, player_d: float, player_v: float, bike_half_l
 			c.min_clear = minf(c.min_clear, dd - lat)
 		elif c.tracking:
 			c.tracking = false
-			if c.min_clear < 1.0 and player_v > 22.0:
+			var rel_v := player_v - c.speed * c.dir
+			if c.min_clear < NEAR_MISS_CLEAR and player_v > 22.0:
 				near_miss.emit(maxf(c.min_clear, 0.0), c.dir < 0)
 				c.horn_cd = 3.0
+			elif c.min_clear < PASS_CLEAR and player_v > 15.0 and absf(rel_v) > 4.0:
+				passed.emit(c.min_clear, absf(rel_v), c.dir < 0)
 			c.min_clear = 99.0
 	return hit
 

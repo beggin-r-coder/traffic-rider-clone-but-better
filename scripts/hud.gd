@@ -29,6 +29,9 @@ var _tilt_smooth := 0.0
 var _btn_steer := 0.0
 var _font: Font
 var speed_fx: ColorRect
+var combo_bar: ColorRect       # drains as the combo window runs out
+var streak_lbl: Label
+var retry_btn: Button
 
 func setup(w) -> void:
 	world = w
@@ -68,7 +71,20 @@ func setup(w) -> void:
 	combo_lbl.set_anchors_preset(Control.PRESET_CENTER_TOP)
 	combo_lbl.position = Vector2(-200, 58)
 	combo_lbl.size = Vector2(400, 34)
+	combo_lbl.pivot_offset = Vector2(200, 17)
 	root.add_child(combo_lbl)
+	combo_bar = ColorRect.new()
+	combo_bar.color = ACCENT
+	combo_bar.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	combo_bar.position = Vector2(-90, 94)
+	combo_bar.size = Vector2(180, 5)
+	combo_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(combo_bar)
+	# Live bonus streak (HIGH SPEED / ONCOMING / WHEELIE) under the score panel.
+	streak_lbl = _label("", 22, Color(0.55, 0.9, 1.0))
+	streak_lbl.position = Vector2(24, 104)
+	streak_lbl.size = Vector2(420, 30)
+	root.add_child(streak_lbl)
 
 	# --- popups (near misses) ---
 	popup_box = VBoxContainer.new()
@@ -124,6 +140,19 @@ func setup(w) -> void:
 	_style_button(pause_btn, PANEL)
 	pause_btn.pressed.connect(toggle_pause)
 	root.add_child(pause_btn)
+
+	# Quick retry after a crash (no waiting for the results panel).
+	retry_btn = Button.new()
+	retry_btn.text = "RETRY"
+	retry_btn.add_theme_font_size_override("font_size", 34)
+	retry_btn.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	retry_btn.position = Vector2(-130, -190)
+	retry_btn.size = Vector2(260, 78)
+	retry_btn.focus_mode = Control.FOCUS_NONE
+	_style_button(retry_btn, Color(0.88, 0.5, 0.04))
+	retry_btn.pressed.connect(func(): world.restart())
+	retry_btn.visible = false
+	root.add_child(retry_btn)
 
 	_tilt_neutral = _raw_tilt()
 	show_message("3", 1.0)
@@ -255,9 +284,18 @@ func steer_input() -> float:
 	var dead := deg_to_rad(1.5)
 	var x := 0.0
 	if absf(t) > dead:
-		x = clampf((absf(t) - dead) / full, 0.0, 1.0) * signf(t)
-	_tilt_smooth = lerpf(_tilt_smooth, x, 0.35)
+		x = clampf((absf(t) - dead) / full, 0.0, 1.0)
+		# Response curve: gentle near the centre for fine lane corrections, steep towards full
+		# tilt for fast swerves.
+		x = (0.4 * x + 0.6 * x * x) * signf(t)
+	# Frame-rate independent smoothing (~30 ms) that filters sensor noise without feeling laggy.
+	var k := 1.0 - exp(-32.0 * get_process_delta_time())
+	_tilt_smooth = lerpf(_tilt_smooth, x, k)
 	return _tilt_smooth
+
+func recenter_tilt() -> void:
+	_tilt_neutral = _raw_tilt()
+	_tilt_smooth = 0.0
 
 # ------------------------------------------------------------------ per-frame
 
@@ -283,6 +321,13 @@ func refresh(dt: float) -> void:
 	else:
 		info_lbl.text = ""
 	combo_lbl.text = ("COMBO x%d" % world.combo) if world.combo > 1 else ""
+	combo_bar.visible = world.combo > 1
+	if combo_bar.visible:
+		var f: float = clampf(world.combo_timer / world.COMBO_WINDOW, 0.0, 1.0)
+		combo_bar.size.x = 180.0 * f
+		combo_bar.position.x = -90.0 * f
+		combo_bar.color = ACCENT if f > 0.3 else RED
+	streak_lbl.text = world.active_streak()
 	pedal_gas.active = r.throttle > 0.1
 	pedal_brake.active = r.brake > 0.1 and world.is_riding()
 	steer_l.active = _held("left")
@@ -312,6 +357,20 @@ func show_message(text: String, t: float) -> void:
 	msg_lbl.text = text
 	msg_lbl.modulate.a = 1.0
 	_msg_t = t
+
+func combo_flash() -> void:
+	combo_lbl.scale = Vector2(1.35, 1.35)
+	var tw := create_tween()
+	tw.tween_property(combo_lbl, "scale", Vector2.ONE, 0.25).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+func show_retry(on: bool) -> void:
+	if not on:
+		retry_btn.visible = false
+		return
+	# Appear after the impact has played out a little.
+	get_tree().create_timer(0.45, true, false, true).timeout.connect(func():
+		if world.state == world.State.CRASHED:
+			retry_btn.visible = true)
 
 func popup(text: String, combo: int) -> void:
 	var l := _label(text, 30 if combo < 3 else 34, ACCENT if combo < 3 else Color(1, 0.45, 0.2))
@@ -389,6 +448,10 @@ func toggle_pause() -> void:
 	pause_panel = m[0]
 	var v: VBoxContainer = m[2]
 	_button(v, "Resume", toggle_pause, true)
+	if Game.steering == Game.Steering.TILT:
+		_button(v, "Re-centre tilt", func():
+			recenter_tilt()
+			toggle_pause())
 	v.add_child(_label("COCKPIT VIEW", 18, Color(1, 1, 1, 0.6)))
 	var pg := GridContainer.new()
 	pg.columns = 2

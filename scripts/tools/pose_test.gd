@@ -72,6 +72,22 @@ func run(dir: String) -> void:
 			print("[posenum] chain", line)
 		get_tree().quit()
 		return
+	if Game.has_flag("crashpose"):
+		# Thrown-rider poses: airborne flailing at a few moments, then limp on the ground.
+		rider.get_parent().remove_child(rider)
+		add_child(rider)
+		bike.visible = false
+		var k := 0
+		for c in [[0.1, 0.0], [0.35, 0.0], [0.6, 0.0], [1.5, 1.0]]:
+			rider.update_crash_pose(c[0], c[1])
+			cam.fov = 40.0
+			cam.global_transform = Transform3D(Basis(), Vector3(2.6, 1.6, 1.4)).looking_at(Vector3(0, 0.9, 0), Vector3.UP)
+			await RenderingServer.frame_post_draw
+			await RenderingServer.frame_post_draw
+			get_viewport().get_texture().get_image().save_png("%s/crash_%d.png" % [dir, k])
+			k += 1
+		get_tree().quit()
+		return
 	if Game.has_flag("markers"):
 		rider.visible = false
 		var pts := [rider.GRIP_IN, rider.GRIP_OUT, rider.LEVER_IN, rider.LEVER_OUT, rider.PEG, rider.SEAT]
